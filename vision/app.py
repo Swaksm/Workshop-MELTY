@@ -43,10 +43,11 @@ def stream():
 
 def capture_loop(model: YOLO, client: mqtt.Client) -> None:
     global latest_jpeg
-    cap = cv2.VideoCapture(CAMERA_INDEX)
+    cap = cv2.VideoCapture(CAMERA_INDEX, getattr(cv2, "CAP_DSHOW", cv2.CAP_ANY))
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
     last_publish = 0.0
+    frames, debut_mesure = 0, time.time()
 
     while True:
         ok, frame = cap.read()
@@ -55,6 +56,10 @@ def capture_loop(model: YOLO, client: mqtt.Client) -> None:
             continue
 
         result = model(frame, verbose=False)[0]
+        frames += 1
+        if time.time() - debut_mesure >= 5.0:
+            print(f"{frames / (time.time() - debut_mesure):.1f} images/s")
+            frames, debut_mesure = 0, time.time()
         for box in result.boxes:
             label = model.names[int(box.cls)]
             confidence = float(box.conf)
