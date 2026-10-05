@@ -1,0 +1,28 @@
+const BASE = "/api/v1";
+
+async function request(path, options) {
+  const res = await fetch(BASE + path, options);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail ?? `Erreur ${res.status}`);
+  }
+  return res.json();
+}
+
+export const getMesures = (tableId, limit = 120) =>
+  request(`/mesures?table_id=${tableId}&limit=${limit}`);
+
+export const getAlertes = (tableId) =>
+  request(`/alertes?table_id=${tableId}&limit=20`);
+
+export const getEtat = (tableId) => request(`/tables/${tableId}/etat`);
+
+export const entrainer = (tableId) =>
+  request(`/tables/${tableId}/entrainement`, { method: "POST" });
+
+export const commander = (tableId, buzzer) =>
+  request(`/tables/${tableId}/commande`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ buzzer }),
+  });

@@ -1,0 +1,223 @@
+import { useCallback, useEffect, useState } from "react";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { commander, entrainer, getAlertes, getEtat, getMesures } from "./api";
+
+const TABLE_ID = "table1";
+const POLL_MS = 3000;
+
+const formatHeure = (iso) => new Date(iso).toLocaleTimeString("fr-FR");
+const formatDate = (iso) => new Date(iso).toLocaleString("fr-FR");
+
+export default function App() {
+  const [mesures, setMesures] = useState([]);
+  const [alertes, setAlertes] = useState([]);
+  const [etat, setEtat] = useState({ alerte_active: false, modele_entraine: false });
+  const [erreur, setErreur] = useState(null);
+  const [message, setMessage] = useState(null);
+
+  const rafraichir = useCallback(async () => {
+    try {
+      const [m, a, e] = await Promise.all([
+        getMesures(TABLE_ID),
+        getAlertes(TABLE_ID),
+        getEtat(TABLE_ID),
+      ]);
+      setMesures(m);
+      setAlertes(a);
+      setEtat(e);
+      setErreur(null);
+    } catch (err) {
+      setErreur(err.message);
+    }
+  }, []);
+
+  useEffect(() => {
+    rafraichir();
+    const id = setInterval(rafraichir, POLL_MS);
+    return () => clearInterval(id);
+  }, [rafraichir]);
+
+  const serie = [...mesures].reverse().map((m) => ({
+    heure: formatHeure(m.received_at),
+    temp: m.temp,
+    hum: m.hum,
+    gaz: m.gas,
+  }));
+  const derniere = mesures[0];
+
+  async function onEntrainer() {
+    setMessage(null);
+    try {
+      const r = await entrainer(TABLE_ID);
+      setMessage(`Modèle entraîné sur ${r.mesures_utilisees} mesures.`);
+      rafraichir();
+    } catch (err) {
+      setMessage(err.message);
+    }
+  }
+
+  async function onBuzzer(state) {
+    setMessage(null);
+    try {
+      await commander(TABLE_ID, state);
+      setMessage(state === "on" ? "Buzzer activé." : "Buzzer coupé.");
+    } catch (err) {
+      setMessage(err.message);
+    }
+  }
+
+  const statut = etat.alerte_active
+    ? { libelle: "Alerte active", classe: "alert" }
+    : { libelle: "Système nominal", classe: "ok" };
+
+  return (
+    <div className="page">
+      <header className="topbar">
+        <div>
+          <div className="kicker">SENTINEL-X · Table {TABLE_ID.replace("table", "")}</div>
+          <h1>Supervision</h1>
+        </div>
+        <div className="status-group">
+          <span className={`pill ${statut.classe}`}>
+            <span className="dot" />
+            {statut.libelle}
+          </span>
+          <span className={`pill ${etat.modele_entraine ? "ok" : "warn"}`}>
+            {etat.modele_entraine ? "Modèle entraîné" : "Modèle non entraîné"}
+          </span>
+        </div>
+      </header>
+
+      {erreur && <div className="banner error">Connexion à l'API impossible : {erreur}</div>}
+
+      <section className="tiles">
+        <Tuile label="Température" valeur={derniere?.temp} unite="°C" />
+        <Tuile label="Humidité" valeur={derniere?.hum} unite="%HR" />
+        <Tuile label="Gaz (valeur brute ADC)" valeur={derniere?.gas} unite="" />
+      </section>
+
+      <section className="charts">
+        <div className="panel">
+          <h2>Environnement</h2>
+          <div className="chart">
+            {serie.length === 0 ? (
+              <Vide texte="Aucune mesure reçue." />
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={serie}>
+                  <CartesianGrid stroke="#1b3147" strokeDasharray="3 3" />
+                  <XAxis dataKey="heure" stroke="#5c7891" fontSize={11} />
+                  <YAxis yAxisId="t" stroke="#5fd9f0" fontSize={11} unit="°C" />
+                  <YAxis yAxisId="h" orientation="right" stroke="#74e0a8" fontSize={11} unit="%" />
+                  <Tooltip contentStyle={tooltipStyle} />
+                  <Line yAxisId="t" type="monotone" dataKey="temp" stroke="#5fd9f0" dot={false} strokeWidth={2} />
+                  <Line yAxisId="h" type="monotone" dataKey="hum" stroke="#74e0a8" dot={false} strokeWidth={2} />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+
+        <div className="panel">
+          <h2>Gaz</h2>
+          <div className="chart">
+            {serie.length === 0 ? (
+              <Vide texte="Aucune mesure reçue." />
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={serie}>
+                  <defs>
+                    <linearGradient id="gazFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#ff6f6f" stopOpacity={0.35} />
+                      <stop offset="100%" stopColor="#ff6f6f" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid stroke="#1b3147" strokeDasharray="3 3" />
+                  <XAxis dataKey="heure" stroke="#5c7891" fontSize={11} />
+                  <YAxis stroke="#ff6f6f" fontSize={11} />
+                  <Tooltip contentStyle={tooltipStyle} />
+                  <Area type="monotone" dataKey="gaz" stroke="#ff6f6f" fill="url(#gazFill)" strokeWidth={2} />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+      </section>
+
+      <section className="bottom">
+        <div className="panel">
+          <h2>Commandes</h2>
+          <div className="actions">
+            <button type="button" className="btn cmd" onClick={() => onBuzzer("on")}>
+              Activer le buzzer
+            </button>
+            <button type="button" className="btn" onClick={() => onBuzzer("off")}>
+              Couper le buzzer
+            </button>
+            <button type="button" className="btn" onClick={onEntrainer}>
+              Entraîner le modèle
+            </button>
+          </div>
+          <p className="hint">
+            Le modèle apprend la baseline à partir des mesures stockées (100 minimum). Aucun seuil n'est fixé à la main.
+          </p>
+          {message && <p className="message">{message}</p>}
+        </div>
+
+        <div className="panel">
+          <h2>Alertes</h2>
+          {alertes.length === 0 ? (
+            <Vide texte="Aucune alerte pour l'instant." />
+          ) : (
+            <ul className="alerts">
+              {alertes.map((a) => (
+                <li key={a.id} className="alert-item">
+                  <span className="stripe" />
+                  <div>
+                    <div className="alert-title">Anomalie détectée</div>
+                    <div className="alert-meta">
+                      {formatDate(a.created_at)} · {a.temp.toFixed(1)} °C · {a.hum.toFixed(1)} % · gaz {a.gas}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function Tuile({ label, valeur, unite }) {
+  return (
+    <div className="tile">
+      <div className="tile-label">{label}</div>
+      <div className="tile-value">
+        {valeur === undefined ? "—" : valeur}
+        {valeur !== undefined && unite && <span className="unit"> {unite}</span>}
+      </div>
+    </div>
+  );
+}
+
+function Vide({ texte }) {
+  return <div className="empty">{texte}</div>;
+}
+
+const tooltipStyle = {
+  background: "#0b1a2a",
+  border: "1px solid #22394f",
+  color: "#e7eef5",
+  fontSize: 12,
+};
