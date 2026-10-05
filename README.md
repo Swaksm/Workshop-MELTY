@@ -134,6 +134,108 @@ docker compose down        # arrête les conteneurs, garde les données
 docker compose down -v     # supprime aussi la base et les modèles entraînés
 ```
 
+### Réseau de la table
+
+Toute la communication se fait sur un seul réseau local, créé par le PC serveur. Rien ne sort vers internet : l'ESP32, le PC et les autres appareils de la table sont sur le même sous-réseau.
+
+#### Plan d'adressage
+
+| Équipement | Adresse | Rôle |
+|---|---|---|
+| Passerelle / PC serveur | `192.168.52.1` (à vérifier) | héberge Mosquitto (1883) et l'API (8000), crée le hotspot |
+| ESP32 | `192.168.52.50` | IP fixe, publie les mesures |
+| Autres appareils | DHCP, par exemple `192.168.52.x` | consultent l'API depuis le navigateur |
+| Masque | `255.255.255.0` (`/24`) | tous les appareils de la table |
+| DNS | `8.8.8.8` (inutile hors internet) | ignoré pour le fonctionnement local |
+
+Le plan ci-dessus est la cible du projet. **Windows peut attribuer une autre adresse au hotspot** (par défaut `192.168.137.1`). L'adresse réelle est celle que tu lis avec `ipconfig` : le firmware doit la reprendre.
+
+#### Créer le hotspot
+
+1. Paramètres → Réseau et Internet → **Point d'accès mobile**.
+2. Nom du réseau : `Sentinel_G9`, mot de passe : `Sentinel_G9`.
+3. Bande : **2,4 GHz** (l'ESP32 ne supporte pas la 5 GHz).
+4. Active le point d'accès.
+
+Certaines cartes Wi-Fi ne peuvent pas être connectées au Wi-Fi de l'école et diffuser le hotspot en même temps. Dans ce cas, le hotspot ne démarre pas, ou n'obtient pas d'adresse.
+
+#### Vérifier l'adresse du PC
+
+```powershell
+ipconfig
+```
+
+Cherche la carte « Connexion au réseau local* N » dont le statut est **connecté** et qui a une adresse IPv4. C'est l'adresse du PC serveur sur le hotspot.
+
+- `Média déconnecté` : le hotspot n'est pas actif.
+- `192.168.52.1` : le firmware est correct.
+- `192.168.137.1` (ou autre) : le firmware doit être adapté, voir ci-dessous.
+
+#### Adapter le firmware à l'adresse réelle
+
+Trois valeurs dans `sentinel_temp.ino` (ou le firmware équivalent), à remplacer par le préfixe réel. Exemple avec `192.168.137.1` :
+
+| Variable | Valeur |
+|---|---|
+| `local_IP` | `192.168.137.50` |
+| `gateway` | `192.168.137.1` |
+| `MQTT_HOST` | `192.168.137.1` |
+
+Le masque ne change pas. L'ESP32 doit être dans le même sous-réseau que le PC.
+
+#### Ouvrir les ports (pare-feu Windows)
+
+L'ESP32 doit atteindre le port MQTT, et les autres appareils le port de l'API. Une fois, dans un terminal **administrateur** :
+
+```powershell
+New-NetFirewallRule -DisplayName "SENTINEL-X MQTT" -Direction Inbound -Protocol TCP -LocalPort 1883 -Action Allow -Profile Private
+New-NetFirewallRule -DisplayName "SENTINEL-X API" -Direction Inbound -Protocol TCP -LocalPort 8000 -Action Allow -Profile Private
+```
+
+Le profil « Privé » doit être actif pour le hotspot. Sinon, remplace `-Profile Private` par `-Profile Any`.
+
+#### Qui parle à qui
+
+| De | Vers | Protocole et port | Usage |
+|---|---|---|---|
+| ESP32 `192.168.52.50` | PC `192.168.52.1:1883` | MQTT (TCP) | publie `sentinelx/table1/sensors` |
+| Backend (conteneur) | `mosquitto:1883` | MQTT (réseau Docker) | reçoit les mesures |
+| Backend (conteneur) | `db:5432` | PostgreSQL (réseau Docker) | enregistre les mesures |
+| Backend (conteneur) | `mosquitto:1883` | MQTT (réseau Docker) | envoie les commandes buzzer |
+| Mosquitto | ESP32 | MQTT (TCP) | commande sur `sentinelx/table1/cmd` (l'ESP32 doit s'y abonner) |
+| Navigateur du PC | `localhost:8000` | HTTP | API et Swagger |
+| Autre appareil | `192.168.52.1:8000` | HTTP | API et Swagger |
+
+Le backend parle à Mosquitto et à la base par les **noms de service Docker**, pas par l'IP du PC. Seuls l'ESP32 et les autres appareils utilisent l'IP du PC.
+
+#### Vérifier que tout communique
+
+Depuis le PC, dans l'ordre :
+
+```powershell
+ipconfig                                  # l'adresse du hotspot est bien celle attendue
+Test-NetConnection 192.168.52.1 -Port 1883   # le port MQTT répond (adapte l'IP)
+curl http://localhost:8000/health         # l'API répond
+```
+
+Depuis l'ESP32, le moniteur série doit afficher l'IP fixe, puis `Connexion MQTT... OK`.
+
+#### Problèmes courants
+
+| Symptôme | Cause probable |
+|---|---|
+| Le hotspot ne démarre pas | la carte Wi-Fi partage déjà la connexion de l'école |
+| L'ESP32 se connecte au WiFi, mais `Connexion MQTT... échec` | mauvaise adresse du PC dans le firmware, ou pare-feu qui bloque 1883 |
+| `Test-NetConnection` échoue | `docker compose up -d` pas lancé, ou pare-feu |
+| L'ESP32 n'obtient pas le WiFi | hotspot en 5 GHz, ou mauvais mot de passe |
+| Les autres appareils ne joignent pas l'API | pare-feu qui bloque 8000, ou profil réseau « Public » |
+
+#### Limites
+
+- Le réseau n'a pas d'accès internet : seules les machines de la table communiquent.
+- L'adresse du PC change si le hotspot est recréé avec un autre plan d'adressage. Le firmware doit alors être mis à jour.
+- Le broker n'est pas chiffré (MQTT en clair) : c'est une limite connue, voir [Limites](#13-limites-connues).
+
 ## 5. Configuration
 
 Fichier `.env` à la racine, créé à partir de `.env.example`. Il n'est pas versionné.
