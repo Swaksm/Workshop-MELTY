@@ -34,8 +34,8 @@ void setup() {
   Serial.println(WiFi.localIP());
 
   // 4. Configuration pour les mises à jour sans fil (OTA)
-  ArduinoOTA.setHostname("Sentinel-X-ESP32");
-  ArduinoOTA.setPassword("SentinelAdmin2026!"); // Mot de passe pour flasher à distance
+  ArduinoOTA.setHostname("Sentinel_G9");
+  ArduinoOTA.setPassword("Sentinel_G9"); // Mot de passe pour flasher à distance
 
   ArduinoOTA.onStart([]() {
     Serial.println("Début du téléversement OTA...");
