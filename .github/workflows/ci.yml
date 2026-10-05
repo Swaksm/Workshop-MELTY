@@ -1,0 +1,152 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - run: pytest
+
+  frontend-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  stack-e2e:
+    needs: [backend-tests, frontend-build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Préparer la configuration
+        run: cp .env.example .env
+      - name: Valider docker-compose
+        run: docker compose config --quiet
+      - name: Lancer la stack
+        run: docker compose up --build -d
+      - name: Attendre l'API
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8000/health; then exit 0; fi
+            sleep 2
+          done
+          exit 1
+      - name: Vérifier le flux MQTT vers l'API
+        run: |
+          pip install -q paho-mqtt==2.1.0
+          python - <<'EOF'
+          import json
+          import time
+          import urllib.request
+
+          import paho.mqtt.publish as publish
+
+          publish.single(
+              "sentinelx/ci/sensors",
+              json.dumps({"temp": 23.4, "hum": 51.2, "gas": 1234}),
+              hostname="localhost",
+              port=1883,
+          )
+          for _ in range(20):
+              with urllib.request.urlopen("http://localhost:8000/api/v1/mesures?table_id=ci&limit=1") as r:
+                  data = json.load(r)
+              if data and data[0]["temp"] == 23.4 and data[0]["gas"] == 1234:
+                  print("Mesure reçue et stockée :", data[0])
+                  break
+              time.sleep(0.5)
+          else:
+              raise SystemExit("La mesure MQTT n'apparaît pas dans l'API")
+          EOF
+      - name: Vérifier l'entraînement du modèle
+        run: |
+          python - <<'EOF'
+          import json
+          import time
+          import urllib.request
+
+          import paho.mqtt.publish as publish
+
+          messages = [
+              {
+                  "topic": "sentinelx/ci/sensors",
+                  "payload": json.dumps({"temp": 23.0 + (i % 5) * 0.1, "hum": 50.0, "gas": 1200 + i % 7}),
+              }
+              for i in range(120)
+          ]
+          publish.multiple(messages, hostname="localhost", port=1883)
+
+          base = "http://localhost:8000/api/v1/tables/ci"
+          for _ in range(60):
+              with urllib.request.urlopen("http://localhost:8000/api/v1/mesures?table_id=ci&limit=1000") as r:
+                  if len(json.load(r)) >= 100:
+                      break
+              time.sleep(0.5)
+          else:
+              raise SystemExit("Moins de 100 mesures stockées")
+
+          req = urllib.request.Request(f"{base}/entrainement", method="POST")
+          with urllib.request.urlopen(req) as r:
+              result = json.load(r)
+          print("Entraînement :", result)
+          assert result["mesures_utilisees"] >= 100
+
+          with urllib.request.urlopen(f"{base}/etat") as r:
+              assert json.load(r)["modele_entraine"] is True
+          EOF
+      - name: Logs en cas d'échec
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Arrêter la stack
+        if: always()
+        run: docker compose down -v
+
+  publish-image:
+    needs: [backend-tests, frontend-build, stack-e2e]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Calculer le nom de l'image
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/sentinel-x-backend" >> "$GITHUB_ENV"
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ github.sha }}
