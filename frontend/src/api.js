@@ -17,6 +17,9 @@ export const getAlertes = (tableId) =>
 
 export const getEtat = (tableId) => request(`/tables/${tableId}/etat`);
 
+export const getDetections = (tableId) =>
+  request(`/detections?table_id=${tableId}&limit=20`);
+
 export const entrainer = (tableId) =>
   request(`/tables/${tableId}/entrainement`, { method: "POST" });
 

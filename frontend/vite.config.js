@@ -6,6 +6,10 @@ export default defineConfig({
   server: {
     proxy: {
       "/api": "http://localhost:8000",
+      "/vision": {
+        target: "http://localhost:8001",
+        rewrite: (path) => path.replace(/^\/vision/, ""),
+      },
     },
   },
 });

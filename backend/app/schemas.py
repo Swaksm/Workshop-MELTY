@@ -1,7 +1,22 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class DetectionIn(BaseModel):
+    label: Literal["person"]
+    confidence: float = Field(ge=0, le=1)
+
+
+class DetectionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    table_id: str
+    label: str
+    confidence: float
+    created_at: datetime
 
 
 class MeasurementIn(BaseModel):

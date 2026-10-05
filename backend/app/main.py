@@ -12,6 +12,7 @@ from app.mqtt import send_buzzer, start_mqtt
 from app.schemas import (
     AlertOut,
     CommandeIn,
+    DetectionOut,
     EntrainementOut,
     EtatOut,
     MeasurementOut,
@@ -69,6 +70,22 @@ def list_alertes(
     )
     if table_id:
         stmt = stmt.where(models.Alert.table_id == table_id)
+    return session.scalars(stmt).all()
+
+
+@app.get("/api/v1/detections", response_model=list[DetectionOut])
+def list_detections(
+    table_id: str | None = None,
+    limit: int = 50,
+    session: Session = Depends(get_session),
+):
+    stmt = (
+        select(models.Detection)
+        .order_by(models.Detection.created_at.desc())
+        .limit(min(limit, 500))
+    )
+    if table_id:
+        stmt = stmt.where(models.Detection.table_id == table_id)
     return session.scalars(stmt).all()
 
 

@@ -19,6 +19,18 @@ class Measurement(Base):
     )
 
 
+class Detection(Base):
+    __tablename__ = "detections"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    table_id: Mapped[str] = mapped_column(String(64), index=True)
+    label: Mapped[str] = mapped_column(String(32))
+    confidence: Mapped[float] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+
+
 class Alert(Base):
     __tablename__ = "alerts"
 

@@ -263,6 +263,30 @@ h2 {
   font-variant-numeric: tabular-nums;
 }
 
+.video-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.video {
+  background: var(--panel-alt);
+  border: 1px solid var(--line);
+  aspect-ratio: 4 / 3;
+  max-height: 480px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.video img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none !important;

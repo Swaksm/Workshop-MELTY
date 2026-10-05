@@ -18,8 +18,9 @@ Projet du workshop EPSI Bac+4 (mission AetherCorp). Le sujet impose notamment : 
 10. [Modèle d'IA](#10-modèle-dia)
 11. [Tests et CI/CD](#11-tests-et-cicd)
 12. [Simulateur](#12-simulateur)
-13. [Limites connues](#13-limites-connues)
-14. [Feuille de route](#14-feuille-de-route)
+13. [Surveillance vidéo](#13-surveillance-vidéo)
+14. [Limites connues](#14-limites-connues)
+15. [Feuille de route](#15-feuille-de-route)
 
 ## 1. Architecture
 
@@ -234,7 +235,7 @@ Depuis l'ESP32, le moniteur série doit afficher l'IP fixe, puis `Connexion MQTT
 
 - Le réseau n'a pas d'accès internet : seules les machines de la table communiquent.
 - L'adresse du PC change si le hotspot est recréé avec un autre plan d'adressage. Le firmware doit alors être mis à jour.
-- Le broker n'est pas chiffré (MQTT en clair) : c'est une limite connue, voir [Limites](#13-limites-connues).
+- Le broker n'est pas chiffré (MQTT en clair) : c'est une limite connue, voir [Limites](#14-limites-connues).
 
 ## 5. Configuration
 
@@ -288,7 +289,7 @@ Règles :
 - `hum` : pourcentage d'humidité relative.
 - `gas` : valeur ADC brute, entier de 0 à 4095. Pas de conversion en ppm.
 - Si la lecture du capteur échoue, n'envoie rien pour ce cycle.
-- Le broker de développement accepte les connexions anonymes sur 1883 (voir [Limites](#13-limites-connues)).
+- Le broker de développement accepte les connexions anonymes sur 1883 (voir [Limites](#14-limites-connues)).
 
 Test manuel avec Mosquitto installé sur le PC :
 
@@ -532,7 +533,92 @@ Scénario de test complet :
 2. Entraîne : `POST /api/v1/tables/table1/entrainement`.
 3. Attends le pic à 60 s, puis vérifie : `GET /api/v1/tables/table1/etat` doit renvoyer `"alerte_active": true`.
 
-## 13. Limites connues
+## 13. Surveillance vidéo
+
+Une webcam branchée sur le PC serveur surveille la table. Un modèle YOLOv8 détecte les objets en direct et renvoie le flux vidéo avec les détections dessinées.
+
+Le module **ne tourne pas dans Docker** : un conteneur Windows n'accède pas à la webcam USB. Il tourne directement sur le PC, dans le dossier `vision/`. L'ESP32 n'intervient pas dans cette partie.
+
+### Ce qui se passe
+
+| Détection | Affichage dans le flux | Effet |
+|---|---|---|
+| **Personne** (`person`) | cadre rouge | événement MQTT, enregistrement en base, buzzer `on` pendant 10 s, alerte dans le dashboard |
+| **Animal** (`bird`, `cat`, `dog`, `horse`, `sheep`, `cow`, `elephant`, `bear`, `zebra`, `giraffe`) | cadre orange | rien d'autre : pas d'alerte, pas de buzzer, pas d'enregistrement |
+| Autre objet, ou confiance < 50 % | rien | rien |
+
+Le buzzer est partagé avec l'alerte capteurs : une fin de buzzer déclenchée par la vidéo peut couper une alerte capteurs en cours, et inversement. C'est une limite connue.
+
+### Flux de données
+
+```
+webcam USB (PC)
+   │
+   ▼
+vision/app.py ── YOLOv8 nano ── cadres dessinés ──► flux MJPEG  http://localhost:8001/stream
+   │
+   │ MQTT PUBLISH  sentinelx/table1/vision  {"label":"person","confidence":0.91}
+   │ (au plus une fois toutes les 5 s)
+   ▼
+Mosquitto ──► backend ──► table detections + commande buzzer ──► sentinelx/table1/cmd
+                │
+                └── GET /api/v1/detections ──► dashboard (panneau « Surveillance vidéo »)
+```
+
+### Installation (sur le PC serveur)
+
+Prérequis : Python 3.12, une webcam USB, et une connexion internet au premier lancement (téléchargement des poids `yolov8n.pt`, environ 6 Mo). PyTorch est installé avec ultralytics, ce qui pèse plusieurs centaines de Mo.
+
+```powershell
+cd vision
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+### Lancement
+
+```powershell
+cd vision
+.venv\Scripts\activate
+python app.py
+```
+
+Variables d'environnement facultatives :
+
+| Variable | Défaut | Rôle |
+|---|---|---|
+| `CAMERA_INDEX` | `0` | numéro de la webcam (1, 2… si plusieurs caméras) |
+| `MQTT_HOST` | `localhost` | broker MQTT, ici le Mosquitto exposé par Docker |
+| `MQTT_PORT` | `1883` | port MQTT |
+| `TABLE_ID` | `table1` | table à laquelle rattacher les détections |
+| `STREAM_PORT` | `8001` | port du flux vidéo |
+
+Le backend doit tourner (`docker compose up -d`), et le frontend (`npm run dev`) doit être lancé pour afficher le flux : il le récupère par le proxy `/vision`.
+
+Vérification rapide :
+- `http://localhost:8001/stream` affiche le flux avec les cadres ;
+- une personne devant la caméra fait apparaître une ligne dans `GET /api/v1/detections` et le buzzer s'active.
+
+### Tests
+
+```powershell
+cd vision
+pip install pytest==8.3.4
+pytest
+```
+
+Les tests couvrent la règle de classement (personne, animal, autre, confiance faible). Le modèle YOLO n'est pas couvert par les tests : il faut le vérifier avec la webcam.
+
+### Limites
+
+- La détection tourne sur le processeur du PC : la fréquence d'images dépend de la machine (environ 5 à 15 images par seconde attendues, à vérifier).
+- Un éclairage faible, une personne de dos ou partiellement cachée peuvent ne pas être détectés.
+- Aucune image n'est enregistrée : seule la détection (label, confiance, heure) est stockée. Le flux n'est pas sauvegardé.
+- Le flux vidéo n'est pas authentifié et circule en clair sur le réseau de la table.
+- La partie vision n'est pas dans la CI : elle n'est testée que pour la logique de classement.
+
+## 14. Limites connues
 
 - **Fausse alerte après un pic** : pendant que le pic sort de la fenêtre de 30 mesures, la pente change et une mesure normale peut être signalée.
 - **État d'alerte en mémoire** : non persisté, repart à faux après un redémarrage.
@@ -545,7 +631,7 @@ Scénario de test complet :
 - **Pas de module vision (webcam)** pour l'instant.
 - **Frontend** : une seule table codée en dur (`table1`) dans `App.jsx`. Pas encore de conteneur Docker pour le frontend.
 
-## 14. Feuille de route
+## 15. Feuille de route
 
 1. Firmware ESP32 : lecture des capteurs, publication, buzzer.
 2. TLS sur MQTT, authentification du broker.

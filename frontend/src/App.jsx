@@ -10,10 +10,18 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { commander, entrainer, getAlertes, getEtat, getMesures } from "./api";
+import {
+  commander,
+  entrainer,
+  getAlertes,
+  getDetections,
+  getEtat,
+  getMesures,
+} from "./api";
 
 const TABLE_ID = "table1";
 const POLL_MS = 3000;
+const PERSONNE_RECENTE_MS = 15000;
 
 const formatHeure = (iso) => new Date(iso).toLocaleTimeString("fr-FR");
 const formatDate = (iso) => new Date(iso).toLocaleString("fr-FR");
@@ -21,20 +29,24 @@ const formatDate = (iso) => new Date(iso).toLocaleString("fr-FR");
 export default function App() {
   const [mesures, setMesures] = useState([]);
   const [alertes, setAlertes] = useState([]);
+  const [detections, setDetections] = useState([]);
   const [etat, setEtat] = useState({ alerte_active: false, modele_entraine: false });
   const [erreur, setErreur] = useState(null);
   const [message, setMessage] = useState(null);
+  const [videoOk, setVideoOk] = useState(true);
 
   const rafraichir = useCallback(async () => {
     try {
-      const [m, a, e] = await Promise.all([
+      const [m, a, e, d] = await Promise.all([
         getMesures(TABLE_ID),
         getAlertes(TABLE_ID),
         getEtat(TABLE_ID),
+        getDetections(TABLE_ID),
       ]);
       setMesures(m);
       setAlertes(a);
       setEtat(e);
+      setDetections(d);
       setErreur(null);
     } catch (err) {
       setErreur(err.message);
@@ -80,6 +92,10 @@ export default function App() {
     ? { libelle: "Alerte active", classe: "alert" }
     : { libelle: "Système nominal", classe: "ok" };
 
+  const personneRecente = detections.find(
+    (d) => Date.now() - new Date(d.created_at).getTime() < PERSONNE_RECENTE_MS,
+  );
+
   return (
     <div className="page">
       <header className="topbar">
@@ -92,6 +108,12 @@ export default function App() {
             <span className="dot" />
             {statut.libelle}
           </span>
+          {personneRecente && (
+            <span className="pill alert">
+              <span className="dot" />
+              Personne détectée
+            </span>
+          )}
           <span className={`pill ${etat.modele_entraine ? "ok" : "warn"}`}>
             {etat.modele_entraine ? "Modèle entraîné" : "Modèle non entraîné"}
           </span>
@@ -152,6 +174,41 @@ export default function App() {
             )}
           </div>
         </div>
+      </section>
+
+      <section className="panel video-panel">
+        <h2>Surveillance vidéo</h2>
+        <div className="video">
+          {videoOk ? (
+            <img
+              src="/vision/stream"
+              alt="Flux de la webcam avec les détections en cours"
+              onError={() => setVideoOk(false)}
+            />
+          ) : (
+            <Vide texte="Flux indisponible : lance le module vision sur le PC (voir le README)." />
+          )}
+        </div>
+        <p className="hint">
+          Rouge : personne (déclenche une alerte et le buzzer). Orange : animal (affiché, sans alerte). Les autres objets ne sont pas affichés.
+        </p>
+        {detections.length === 0 ? (
+          <Vide texte="Aucune personne détectée." />
+        ) : (
+          <ul className="alerts">
+            {detections.slice(0, 10).map((d) => (
+              <li key={d.id} className="alert-item">
+                <span className="stripe" />
+                <div>
+                  <div className="alert-title">Personne détectée</div>
+                  <div className="alert-meta">
+                    {formatDate(d.created_at)} · confiance {Math.round(d.confidence * 100)} %
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <section className="bottom">

@@ -7,3 +7,4 @@ dist/
 /*.pdf
 mosquitto/certs/
 backend/models/
+*.pt
