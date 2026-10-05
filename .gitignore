@@ -6,3 +6,4 @@ node_modules/
 dist/
 /*.pdf
 mosquitto/certs/
+backend/models/

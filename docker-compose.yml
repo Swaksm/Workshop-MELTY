@@ -28,7 +28,10 @@ services:
         condition: service_healthy
       mosquitto:
         condition: service_started
+    volumes:
+      - model-data:/code/models
 
 volumes:
   pgdata:
   mosquitto-data:
+  model-data:

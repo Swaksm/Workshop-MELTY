@@ -17,3 +17,16 @@ class Measurement(Base):
     received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
     )
+
+
+class Alert(Base):
+    __tablename__ = "alerts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    table_id: Mapped[str] = mapped_column(String(64), index=True)
+    temp: Mapped[float] = mapped_column(Float)
+    hum: Mapped[float] = mapped_column(Float)
+    gas: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )

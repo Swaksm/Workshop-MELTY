@@ -1,3 +1,4 @@
+import json
 import logging
 
 import paho.mqtt.client as mqtt
@@ -5,12 +6,18 @@ from pydantic import ValidationError
 
 from app.config import settings
 from app.db import SessionLocal
+from app.detection import evaluate
 from app.models import Measurement
 from app.schemas import MeasurementIn
 
 log = logging.getLogger(__name__)
 
 SENSORS_TOPIC = "sentinelx/+/sensors"
+_client: mqtt.Client | None = None
+
+
+def send_buzzer(table_id: str, state: str) -> None:
+    _client.publish(f"sentinelx/{table_id}/cmd", json.dumps({"buzzer": state}))
 
 
 def on_connect(client, userdata, flags, reason_code, properties):
@@ -30,12 +37,14 @@ def on_message(client, userdata, msg):
     with SessionLocal() as session:
         session.add(Measurement(table_id=table_id, **data.model_dump()))
         session.commit()
+        evaluate(session, table_id, send_buzzer)
 
 
 def start_mqtt() -> mqtt.Client:
-    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-    client.on_connect = on_connect
-    client.on_message = on_message
-    client.connect_async(settings.mqtt_host, settings.mqtt_port)
-    client.loop_start()
-    return client
+    global _client
+    _client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+    _client.on_connect = on_connect
+    _client.on_message = on_message
+    _client.connect_async(settings.mqtt_host, settings.mqtt_port)
+    _client.loop_start()
+    return _client
