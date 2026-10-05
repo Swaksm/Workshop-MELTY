@@ -17,6 +17,25 @@ export const getAlertes = (tableId) =>
 
 export const getEtat = (tableId) => request(`/tables/${tableId}/etat`);
 
+export async function getCameras() {
+  const res = await fetch("/vision/cameras");
+  if (!res.ok) throw new Error(`Module vision injoignable (${res.status})`);
+  return res.json();
+}
+
+export async function choisirCamera(index) {
+  const res = await fetch("/vision/camera", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ index }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail ?? `Erreur ${res.status}`);
+  }
+  return res.json();
+}
+
 export const getDetections = (tableId) =>
   request(`/detections?table_id=${tableId}&limit=20`);
 

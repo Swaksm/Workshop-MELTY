@@ -269,6 +269,35 @@ h2 {
   gap: 12px;
 }
 
+.video-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.video-head h2 {
+  margin: 0;
+}
+
+.camera-select {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.camera-select select {
+  font: inherit;
+  background: var(--panel-alt);
+  color: var(--text);
+  border: 1px solid var(--line);
+  padding: 6px 10px;
+}
+
 .video {
   background: var(--panel-alt);
   border: 1px solid var(--line);

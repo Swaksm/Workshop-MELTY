@@ -11,9 +11,11 @@ import {
   YAxis,
 } from "recharts";
 import {
+  choisirCamera,
   commander,
   entrainer,
   getAlertes,
+  getCameras,
   getDetections,
   getEtat,
   getMesures,
@@ -34,6 +36,24 @@ export default function App() {
   const [erreur, setErreur] = useState(null);
   const [message, setMessage] = useState(null);
   const [videoOk, setVideoOk] = useState(true);
+  const [cameras, setCameras] = useState({ disponibles: [], active: null });
+  const [erreurCamera, setErreurCamera] = useState(null);
+
+  useEffect(() => {
+    getCameras()
+      .then(setCameras)
+      .catch(() => setCameras({ disponibles: [], active: null }));
+  }, []);
+
+  async function onChoisirCamera(index) {
+    setErreurCamera(null);
+    try {
+      await choisirCamera(index);
+      setCameras(await getCameras());
+    } catch (err) {
+      setErreurCamera(err.message);
+    }
+  }
 
   const rafraichir = useCallback(async () => {
     try {
@@ -177,7 +197,29 @@ export default function App() {
       </section>
 
       <section className="panel video-panel">
-        <h2>Surveillance vidéo</h2>
+        <div className="video-head">
+          <h2>Surveillance vidéo</h2>
+          {cameras.disponibles.length > 1 ? (
+            <label className="camera-select">
+              Caméra
+              <select
+                value={cameras.active ?? ""}
+                onChange={(e) => onChoisirCamera(Number(e.target.value))}
+              >
+                {cameras.disponibles.map((index) => (
+                  <option key={index} value={index}>
+                    Caméra n°{index}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            cameras.disponibles.length === 1 && (
+              <span className="hint">Une seule caméra détectée (n°{cameras.disponibles[0]})</span>
+            )
+          )}
+        </div>
+        {erreurCamera && <div className="banner error">{erreurCamera}</div>}
         <div className="video">
           {videoOk ? (
             <img
