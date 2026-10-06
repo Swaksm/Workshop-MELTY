@@ -38,6 +38,8 @@ services:
       - "${HOTSPOT_IP}:1883:1883"        # ESP32 (réseau de table uniquement)
     volumes:
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/passwd:/mosquitto/config/passwd:ro
+      - ./mosquitto/acl:/mosquitto/config/acl:ro
       - mosquitto-data:/mosquitto/data
 
   backend:
