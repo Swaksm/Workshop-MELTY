@@ -10,3 +10,4 @@ backend/models/
 *.pt
 media/
 logs/
+mosquitto/passwd
