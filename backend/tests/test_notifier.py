@@ -19,8 +19,10 @@ def test_pas_plus_d_un_mail_toutes_les_5_minutes(mail_configure, monkeypatch):
 
     assert n.anomalie("table1", 23.1, 50.2, 3500) is True
     assert n.anomalie("table1", 23.1, 50.2, 3600) is False
+    assert n.hausse("table1", 24.0, 0.9) is True
+    assert n.personne("table1", 0.9, None, None) is True
     assert n.personne("table1", 0.9, None, None) is False
-    assert len(envois) == 1
+    assert len(envois) == 3
 
 
 def test_aucun_mail_sans_configuration(monkeypatch):
