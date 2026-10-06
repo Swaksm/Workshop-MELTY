@@ -41,3 +41,19 @@ _modele = RandomForestClassifier(n_estimators=150, max_depth=8, random_state=42)
 
 def probabilite_hausse(serie: np.ndarray) -> float:
     return float(_modele.predict_proba([_features(serie)])[0][1])
+
+
+NOMS_CARACTERISTIQUES = ["pente", "pente récente (10 dernières mesures)", "variation totale", "écart-type"]
+REFERENCES = [0.0, 0.0, 0.0, None]
+
+
+def explication(serie: np.ndarray) -> dict:
+    f = _features(serie)
+    return {
+        "modele": "Random Forest",
+        "probabilite": round(float(_modele.predict_proba([f])[0][1]), 3),
+        "caracteristiques": [
+            {"nom": nom, "valeur": round(float(valeur), 3), "normal": reference}
+            for nom, valeur, reference in zip(NOMS_CARACTERISTIQUES, f, REFERENCES)
+        ],
+    }

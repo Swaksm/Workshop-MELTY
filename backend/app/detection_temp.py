@@ -33,7 +33,16 @@ def evaluate_hausse(session: Session, table_id: str, set_buzzer: Callable[[str, 
 
     if probabilite >= ml_temp.SEUIL and table_id not in _active:
         _active.add(table_id)
-        session.add(Alert(table_id=table_id, temp=last.temp, hum=last.hum, gas=last.gas, kind=KIND))
+        session.add(
+            Alert(
+                table_id=table_id,
+                temp=last.temp,
+                hum=last.hum,
+                gas=last.gas,
+                kind=KIND,
+                details=ml_temp.explication(serie),
+            )
+        )
         session.commit()
         set_buzzer(table_id, "on")
         notifier.hausse(table_id, last.temp, probabilite)

@@ -375,6 +375,65 @@ h2 {
   flex: none;
 }
 
+.explication {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.explication summary {
+  cursor: pointer;
+  color: var(--data);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.explication-body {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.explication-modele {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
+.explication table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.explication th,
+.explication td {
+  text-align: left;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--line);
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+.explication th {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.explication tr.hors-norme td {
+  color: var(--alert);
+  font-weight: 600;
+}
+
+.explication-note {
+  margin: 8px 0 0;
+  color: var(--text-mute);
+  font-size: 11px;
+}
+
 .alert-item.hausse .stripe {
   background: var(--cmd);
   box-shadow: 0 0 10px rgba(245, 176, 65, 0.6);

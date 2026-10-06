@@ -47,6 +47,7 @@ class AlertOut(BaseModel):
     temp: float
     hum: float
     gas: int
+    details: dict | None = None
     created_at: datetime
 
 

@@ -51,3 +51,26 @@ def get_model(table_id: str) -> Pipeline | None:
 
 def is_anomaly(model: Pipeline, values: np.ndarray) -> bool:
     return model.predict([_features(values, len(values) - 1)])[0] == -1
+
+
+NOMS_CARACTERISTIQUES = ["température", "humidité", "gaz", "pente de la température", "pente du gaz"]
+
+
+def explication(model: Pipeline, values: np.ndarray) -> dict:
+    f = _features(values, len(values) - 1)
+    scaler = model.named_steps["standardscaler"]
+    ecarts = (np.array(f) - scaler.mean_) / scaler.scale_
+    lof = float(-model.score_samples([f])[0])
+    return {
+        "modele": "LOF",
+        "facteur_lof": round(lof, 2),
+        "caracteristiques": [
+            {
+                "nom": nom,
+                "valeur": round(float(valeur), 3),
+                "normal": round(float(moyenne), 3),
+                "ecart": round(float(ecart), 1),
+            }
+            for nom, valeur, moyenne, ecart in zip(NOMS_CARACTERISTIQUES, f, scaler.mean_, ecarts)
+        ],
+    }

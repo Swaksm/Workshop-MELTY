@@ -394,6 +394,7 @@ export default function App({ onLogout }) {
                     <div className="alert-meta">
                       {formatDate(a.created_at)} · {a.temp.toFixed(1)} °C · {a.hum.toFixed(1)} % · gaz {a.gas}
                     </div>
+                    <Explication details={a.details} />
                   </div>
                 </li>
               ))}
@@ -414,6 +415,43 @@ function Tuile({ label, valeur, unite }) {
         {valeur !== undefined && unite && <span className="unit"> {unite}</span>}
       </div>
     </div>
+  );
+}
+
+function Explication({ details }) {
+  if (!details) return null;
+  return (
+    <details className="explication">
+      <summary>Pourquoi cette alerte ?</summary>
+      <div className="explication-body">
+        <div className="explication-modele">
+          Modèle {details.modele}
+          {details.facteur_lof !== undefined && <> · facteur LOF {details.facteur_lof} (normal ≈ 1)</>}
+          {details.probabilite !== undefined && <> · probabilité de hausse {Math.round(details.probabilite * 100)} %</>}
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Caractéristique</th>
+              <th>Valeur</th>
+              <th>Normal</th>
+              <th>Écart</th>
+            </tr>
+          </thead>
+          <tbody>
+            {details.caracteristiques.map((c) => (
+              <tr key={c.nom} className={c.ecart !== undefined && Math.abs(c.ecart) > 3 ? "hors-norme" : ""}>
+                <td>{c.nom}</td>
+                <td>{c.valeur}</td>
+                <td>{c.normal ?? "—"}</td>
+                <td>{c.ecart !== undefined ? `${c.ecart} σ` : "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="explication-note">Écart en nombre d'écarts-types par rapport à la baseline apprise. Au-delà de 3 σ, la valeur est surlignée.</p>
+      </div>
+    </details>
   );
 }
 

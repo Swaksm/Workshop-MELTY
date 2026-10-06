@@ -40,6 +40,17 @@ def test_hausse_cree_une_alerte_et_active_le_buzzer():
     assert appels == [("table1", "on")]
 
 
+def test_explication_hausse_contient_les_caracteristiques():
+    serie = 22 + 0.05 * np.arange(30)
+    details = ml_temp.explication(serie)
+
+    assert details["modele"] == "Random Forest"
+    assert details["probabilite"] >= ml_temp.SEUIL
+    pente = next(c for c in details["caracteristiques"] if c["nom"] == "pente")
+    assert pente["valeur"] > 0.03
+    assert pente["normal"] == 0.0
+
+
 def test_mail_hausse_contient_la_probabilite(monkeypatch):
     from app import config
     monkeypatch.setattr(config.settings, "gmail_user", "a@b.c")

@@ -31,6 +31,7 @@ async def lifespan(app: FastAPI):
         conn.execute(
             text("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS kind VARCHAR(32) NOT NULL DEFAULT 'anomalie'")
         )
+        conn.execute(text("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS details JSON"))
     mqtt_client = start_mqtt()
     yield
     mqtt_client.loop_stop()
