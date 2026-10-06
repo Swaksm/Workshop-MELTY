@@ -9,3 +9,4 @@ mosquitto/certs/
 backend/models/
 *.pt
 media/
+logs/

@@ -25,6 +25,7 @@ class MeasurementIn(BaseModel):
     temp: float
     hum: float
     gas: int
+    pir: int | None = Field(default=None, ge=0, le=1)
 
 
 class MeasurementOut(BaseModel):
@@ -35,6 +36,7 @@ class MeasurementOut(BaseModel):
     temp: float
     hum: float
     gas: int
+    pir: int | None = None
     received_at: datetime
 
 

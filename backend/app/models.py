@@ -14,6 +14,7 @@ class Measurement(Base):
     temp: Mapped[float] = mapped_column(Float)
     hum: Mapped[float] = mapped_column(Float)
     gas: Mapped[int] = mapped_column(Integer)
+    pir: Mapped[int | None] = mapped_column(Integer, nullable=True)
     received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
     )

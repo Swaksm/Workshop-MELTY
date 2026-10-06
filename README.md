@@ -119,6 +119,24 @@ Webcam USB (PC)          │        ▲          └────┬────�
 
 ## 4. Installation et lancement
 
+### Lancement rapide (Windows)
+
+Une seule commande démarre tout : Docker Desktop si besoin, la stack (base, broker, backend), le dashboard et le module vision.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\lancer.ps1
+```
+
+Options : `-CameraIndex 1` pour une autre webcam, `-SansVision` ou `-SansFront` pour ne pas lancer une partie.
+
+Pour tout arrêter (la base et les modèles sont conservés) :
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\arreter.ps1
+```
+
+Les journaux sont dans le dossier `logs\`. Le détail manuel ci-dessous reste valable.
+
 ### Prérequis
 
 - Docker Desktop (ou Docker Engine et Compose v2)

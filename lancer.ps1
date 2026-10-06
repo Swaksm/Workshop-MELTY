@@ -1,0 +1,68 @@
+param(
+    [int]$CameraIndex = 0,
+    [switch]$SansVision,
+    [switch]$SansFront
+)
+
+$ErrorActionPreference = "Stop"
+$racine = $PSScriptRoot
+$logs = Join-Path $racine "logs"
+New-Item -ItemType Directory -Force -Path $logs | Out-Null
+
+function Test-Docker {
+    cmd /c "docker info >nul 2>&1"
+    return $LASTEXITCODE -eq 0
+}
+
+function Attendre-Docker {
+    if (Test-Docker) { return }
+    Write-Host "Démarrage de Docker Desktop..."
+    Start-Process "$env:ProgramFiles\Docker\Docker\Docker Desktop.exe"
+    for ($i = 0; $i -lt 90; $i++) {
+        Start-Sleep -Seconds 2
+        if (Test-Docker) { return }
+    }
+    throw "Docker ne répond pas après 3 minutes. Lance Docker Desktop à la main puis relance ce script."
+}
+
+Set-Location $racine
+
+Attendre-Docker
+Write-Host "1/3 Stack Docker (base, broker MQTT, backend)..."
+cmd /c "docker compose up -d --build"
+if ($LASTEXITCODE -ne 0) { throw "docker compose up a échoué." }
+
+if (-not $SansFront) {
+    Write-Host "2/3 Dashboard (Vite)..."
+    if (-not (Test-Path "$racine\frontend\node_modules")) {
+        cmd /c "npm --prefix `"$racine\frontend`" install"
+        if ($LASTEXITCODE -ne 0) { throw "npm install a échoué." }
+    }
+    Start-Process -FilePath "cmd.exe" `
+        -ArgumentList "/c npm --prefix `"$racine\frontend`" run dev -- --host localhost --port 5173" `
+        -WindowStyle Hidden `
+        -RedirectStandardOutput "$logs\front.log" -RedirectStandardError "$logs\front.err"
+}
+
+if (-not $SansVision) {
+    Write-Host "3/3 Module vision (webcam $CameraIndex)..."
+    $py = "$racine\vision\.venv\Scripts\python.exe"
+    if (-not (Test-Path $py)) {
+        py -3.10 -m venv "$racine\vision\.venv"
+        & $py -m pip install -q --upgrade pip
+        & $py -m pip install -q torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cpu
+        & $py -m pip install -q -r "$racine\vision\requirements.txt"
+        if ($LASTEXITCODE -ne 0) { throw "Installation des dépendances vision échouée." }
+    }
+    $env:CAMERA_INDEX = "$CameraIndex"
+    Start-Process -FilePath $py -ArgumentList "app.py" -WorkingDirectory "$racine\vision" `
+        -WindowStyle Hidden `
+        -RedirectStandardOutput "$logs\vision.log" -RedirectStandardError "$logs\vision.err"
+}
+
+Write-Host ""
+Write-Host "Prêt :"
+Write-Host "  Dashboard  : http://localhost:5173"
+Write-Host "  API        : http://localhost:8000/docs"
+Write-Host "  Vision     : http://localhost:8001/stream"
+Write-Host "Journaux dans le dossier logs\. Pour tout arrêter : .\arreter.ps1"
