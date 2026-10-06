@@ -376,10 +376,10 @@ h2 {
   grid-template-columns: minmax(0, 1.6fr) minmax(260px, 1fr);
   grid-template-areas:
     "head head"
-    "stage pres"
-    "hint list";
+    "stage side"
+    "hint side";
   gap: 16px 22px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .video-panel > .video-head {
@@ -388,20 +388,26 @@ h2 {
 
 .video-panel > .video {
   grid-area: stage;
-}
-
-.video-panel > .presence {
-  grid-area: pres;
+  align-self: start;
 }
 
 .video-panel > .hint {
   grid-area: hint;
   margin: 0;
+  align-self: start;
 }
 
-.video-panel > .alerts,
-.video-panel > .empty {
-  grid-area: list;
+.video-side {
+  grid-area: side;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.video-side .alerts {
+  max-height: none;
+  flex: 1;
 }
 
 .video-head {
@@ -633,9 +639,8 @@ h2 {
     grid-template-areas:
       "head"
       "stage"
-      "pres"
       "hint"
-      "list";
+      "side";
   }
 
   .tile-value {

@@ -234,23 +234,6 @@ export default function App({ onLogout }) {
           )}
         </div>
         {erreurCamera && <div className="banner error">{erreurCamera}</div>}
-        <div className="presence">
-          <div className="presence-head">
-            <span>Présence devant la caméra</span>
-            <span className={presence.confirmee ? "presence-ok" : ""}>
-              {presence.confirmee
-                ? "Confirmée : alerte envoyée"
-                : `${(presence.progression * 3).toFixed(1)} / 3 s`}
-            </span>
-          </div>
-          <div className="presence-bar" role="progressbar" aria-valuemin={0} aria-valuemax={3}
-               aria-valuenow={Number((presence.progression * 3).toFixed(1))}>
-            <div
-              className={`presence-fill ${presence.confirmee ? "done" : ""}`}
-              style={{ width: `${Math.round(presence.progression * 100)}%` }}
-            />
-          </div>
-        </div>
         <div className="video">
           {videoOk ? (
             <img
@@ -265,23 +248,43 @@ export default function App({ onLogout }) {
         <p className="hint">
           Rouge : personne (déclenche une alerte et le buzzer). Orange : animal (affiché, sans alerte). Les autres objets ne sont pas affichés.
         </p>
-        {detections.length === 0 ? (
-          <Vide texte="Aucune personne détectée." />
-        ) : (
-          <ul className="alerts">
-            {detections.slice(0, 10).map((d) => (
-              <li key={d.id} className="alert-item">
-                <span className="stripe" />
-                <div>
-                  <div className="alert-title">Personne détectée</div>
-                  <div className="alert-meta">
-                    {formatDate(d.created_at)} · confiance {Math.round(d.confidence * 100)} %
+        <aside className="video-side">
+          <div className="presence">
+            <div className="presence-head">
+              <span>Présence devant la caméra</span>
+              <span className={presence.confirmee ? "presence-ok" : ""}>
+                {presence.confirmee
+                  ? "Confirmée : alerte envoyée"
+                  : `${(presence.progression * 3).toFixed(1)} / 3 s`}
+              </span>
+            </div>
+            <div className="presence-bar" role="progressbar" aria-valuemin={0} aria-valuemax={3}
+                 aria-valuenow={Number((presence.progression * 3).toFixed(1))}>
+              <div
+                className={`presence-fill ${presence.confirmee ? "done" : ""}`}
+                style={{ width: `${Math.round(presence.progression * 100)}%` }}
+              />
+            </div>
+          </div>
+
+          {detections.length === 0 ? (
+            <Vide texte="Aucune personne détectée." />
+          ) : (
+            <ul className="alerts">
+              {detections.slice(0, 10).map((d) => (
+                <li key={d.id} className="alert-item">
+                  <span className="stripe" />
+                  <div>
+                    <div className="alert-title">Personne détectée</div>
+                    <div className="alert-meta">
+                      {formatDate(d.created_at)} · confiance {Math.round(d.confidence * 100)} %
+                    </div>
                   </div>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </aside>
       </section>
 
       <section className="bottom">
