@@ -480,6 +480,28 @@ Le modèle ne contient aucun seuil écrit à la main. Il apprend ce qui est norm
 
 **Choix du modèle.** Sur des données simulées, Isolation Forest détectait 94 % des pics avec 6,8 % de fausses alertes, et LOF détecte 100 % des pics avec 0,5 % de fausses alertes. Ces chiffres viennent de données simulées : à revérifier avec les vraies mesures.
 
+### Entraînement du modèle capteurs (LOF)
+
+Le modèle capteurs est **entraîné par table**, à la demande :
+
+1. Les 5000 dernières mesures de la table sont lues, dans l'ordre chronologique.
+2. Si moins de **100 mesures** sont disponibles, l'entraînement est refusé (HTTP 400).
+3. Pour chaque mesure, cinq caractéristiques sont calculées sur une fenêtre glissante de 30 mesures : température, humidité, gaz, pente de la température et pente du gaz.
+4. Un pipeline `StandardScaler` puis `LocalOutlierFactor(n_neighbors=20, novelty=True, contamination=0.05)` est ajusté sur ces valeurs.
+5. Le modèle est enregistré dans `backend/models/<table>.joblib`. Un nouvel entraînement remplace le précédent.
+
+Le modèle considère donc que **toutes les mesures d'entraînement sont normales**. Il faut l'entraîner pendant une période calme. Le paramètre `contamination=0.05` signifie que les 5 % de points les plus isolés de la baseline servent de référence pour la frontière.
+
+Lancer l'entraînement :
+
+```bash
+curl -X POST http://localhost:8000/api/v1/tables/table1/entrainement
+```
+
+### Entraînement du modèle de hausse (Random Forest)
+
+Ce modèle **n'est pas entraîné par table** : il est entraîné une fois, au démarrage du backend, sur des exemples simulés (2000 montées, 2000 stabilités, 1000 descentes). Il n'y a aucune commande à lancer.
+
 ### Hausse de température (Random Forest)
 
 Un second modèle surveille uniquement la **tendance** de la température, sans valeur fixe.
@@ -491,6 +513,21 @@ Un second modèle surveille uniquement la **tendance** de la température, sans 
 - **Effet** : une alerte `hausse_temperature`, le buzzer pendant la hausse, et un mail (voir [section 13](#13-alertes-par-mail)).
 
 Le bruit du DHT22 (environ ±0,5 °C) peut masquer une montée lente. Ce modèle doit être réentraîné sur de vraies mesures avant d'être fiable.
+
+### Quand une alerte part
+
+Chaque alerte suit les mêmes principes : elle est créée **au passage** dans l'état d'alerte, puis elle est levée quand le modèle juge la situation revenue à la normale.
+
+| Alerte | Conditions pour déclencher | Fin de l'alerte | Effet |
+|---|---|---|---|
+| **Anomalie capteurs** (LOF) | un modèle capteurs entraîné pour la table ; une mesure reçue qui tombe hors de la baseline (prédiction `-1`) ; pas déjà en alerte | la mesure suivante est jugée normale | ligne dans `alerts` (type `anomalie`), buzzer `on`, mail si le délai de 5 minutes est écoulé |
+| **Hausse de température** (Random Forest) | au moins 30 mesures pour la table ; probabilité de hausse ≥ 0,8 ; pas déjà en alerte | probabilité < 0,5 | ligne dans `alerts` (type `hausse_temperature`), buzzer `on`, mail si le délai de 5 minutes est écoulé |
+| **Personne** (vidéo) | présence continue de 3 s ; confiance YOLO ≥ 50 % ; classe `person` uniquement | 2 s d'absence réarment la règle | ligne dans `detections`, buzzer `on` pendant 10 s, mail avec capture et clip si le délai est écoulé |
+
+Points à retenir :
+- **Sans modèle entraîné, aucune alerte capteurs** : le LOF n'a pas de baseline à comparer. Le Random Forest de hausse fonctionne dès le démarrage du backend, à condition d'avoir 30 mesures.
+- **Un mail par type toutes les 5 minutes** : un événement pendant le délai de son type ne donne pas de mail, mais il reste enregistré et visible sur le dashboard.
+- **Le buzzer est partagé** : la fin d'une alerte (ou le buzzer de 10 s de la vidéo) peut couper une autre alerte en cours.
 
 ## 12. Surveillance vidéo
 
