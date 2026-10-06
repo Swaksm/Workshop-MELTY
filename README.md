@@ -156,9 +156,11 @@ curl http://localhost:8000/health   # {"status":"ok"}
 
 | Service | Port hôte | Rôle |
 |---|---|---|
-| `backend` | 8000 | API REST et Swagger |
-| `mosquitto` | 1883 | broker MQTT |
+| `backend` | 8000 | API REST et Swagger, liée à `127.0.0.1` et à `HOTSPOT_IP` (les autres appareils de la table) |
+| `mosquitto` | 1883 | broker MQTT, lié à `127.0.0.1` (vision) et à `HOTSPOT_IP` (ESP32) |
 | `db` | non exposé | PostgreSQL, réseau Docker uniquement |
+
+Les conteneurs tournent sous un utilisateur non-root, sans privilèges supplémentaires et avec système de fichiers en lecture seule (sauf les volumes de données). `lancer.ps1` détecte l'adresse du hotspot et la met dans `HOTSPOT_IP` du `.env`.
 
 ### Lancer le dashboard
 
@@ -273,6 +275,9 @@ curl http://localhost:8000/health
 | Le hotspot ne démarre pas | la carte Wi-Fi partage déjà la connexion de l'école |
 | L'ESP32 se connecte au Wi-Fi, mais `Connexion MQTT... échec` | mauvaise adresse du PC dans le firmware, ou pare-feu qui bloque 1883 |
 | Les autres appareils n'atteignent pas l'API | pare-feu qui bloque 8000, ou profil réseau « Public » |
+| `lancer.ps1` échoue avec « Docker ne répond pas » | Docker Desktop bloqué sur un ancien socket (`%LOCALAPPDATA%\Dockerun`). Redémarre Windows : le verrou disparaît. Ne pas réinitialiser Docker en usine, ça efface les volumes |
+| Le backend ne peut pas écrire les modèles (`Permission denied` sur `/code/models`) | le volume `model-data` appartient à root. Le corriger sans rien supprimer : `docker run --rm -v workshop_model-data:/m alpine chown -R 10001:10001 /m` |
+| Le module vision ne voit pas une webcam branchée | il ne scanne les caméras qu'au démarrage : relance `lancer.ps1` (ou `arreter.ps1` puis `lancer.ps1`) |
 
 ## 6. Configuration
 
@@ -286,6 +291,7 @@ Fichier `.env` à la racine, créé à partir de `.env.example`. Il n'est pas ve
 | `DATABASE_URL` | `postgresql+psycopg://sentinel:…@db:5432/sentinel` | `backend` | connexion SQLAlchemy |
 | `MQTT_HOST` | `mosquitto` | `backend` | broker vu depuis le backend |
 | `MQTT_PORT` | `1883` | `backend` | port MQTT |
+| `HOTSPOT_IP` | `192.168.52.1` | `docker compose` | adresse du PC sur le hotspot, où l'ESP32 joint le broker et l'API. Mise à jour automatiquement par `lancer.ps1` (`127.0.0.1` si le hotspot est éteint) |
 | `GMAIL_USER` | `adresse@gmail.com` | `backend` | compte qui envoie les mails |
 | `GMAIL_APP_PASSWORD` | `abcdefghijklmnop` | `backend` | mot de passe d'application Google (16 caractères, sans espaces) |
 | `ALERT_TO` | `equipe@exemple.com` | `backend` | destinataire des alertes |
@@ -345,11 +351,11 @@ Une **table** est un identifiant libre (`table1`). Il doit être identique côt�
 
 | Sens | Topic | Payload | Fréquence |
 |---|---|---|---|
-| ESP32 → backend | `sentinelx/<table>/sensors` | `{"temp":23.4,"hum":51.2,"gas":1234}` | toutes les 5 s |
+| ESP32 → backend | `sentinelx/<table>/sensors` | `{"temp":23.4,"hum":51.2,"gas":1234,"pir":0}` | toutes les 5 s |
 | vision → backend | `sentinelx/<table>/vision` | `{"label":"person","confidence":0.91,"image":"<base64 JPEG>","clip":"clip_table1_...mp4"}` | une fois par présence confirmée, 5 s après la confirmation |
 | backend → ESP32 | `sentinelx/<table>/cmd` | `{"buzzer":"on"}` ou `{"buzzer":"off"}` | sur événement |
 
-- `temp` : °C, un chiffre après la virgule. `hum` : humidité relative en %. `gas` : valeur ADC brute, entier de 0 à 4095.
+- `temp` : °C, un chiffre après la virgule. `hum` : humidité relative en %. `gas` : valeur ADC brute, entier de 0 à 4095. `pir` : 0 ou 1, facultatif (mouvement du capteur PIR, stocké dans `measurements.pir`).
 - Le champ `image` est facultatif. Un label autre que `person` est refusé.
 - Le broker de développement accepte les connexions anonymes sur 1883 (voir [limites](#16-limites-connues)).
 
