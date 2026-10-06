@@ -4,6 +4,8 @@ import os
 import sys
 import threading
 import time
+from collections import deque
+from pathlib import Path
 
 import cv2
 import paho.mqtt.client as mqtt
@@ -23,6 +25,9 @@ TABLE_ID = os.environ.get("TABLE_ID", "table1")
 TOPIC = f"sentinelx/{TABLE_ID}/vision"
 PRESENCE_SECONDS = 3.0
 ABSENCE_SECONDS = 2.0
+CLIP_SECONDS = 5.0
+CLIP_SIZE = (320, 240)
+MEDIA_DIR = Path(os.environ.get("MEDIA_DIR", Path(__file__).resolve().parent.parent / "media"))
 STREAM_PORT = int(os.environ.get("STREAM_PORT", "8001"))
 
 COLORS = {"person": (0, 0, 255), "animal": (255, 200, 0)}
@@ -118,11 +123,33 @@ class PresenceTracker:
         return False
 
 
+def ecrire_clip(enregistrement: dict, client: mqtt.Client) -> None:
+    frames = enregistrement["frames"]
+    duree = max(frames[-1][0] - frames[0][0], 0.1)
+    fps = min(max(len(frames) / duree, 3.0), 15.0)
+    MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+    nom = f"clip_{TABLE_ID}_{int(enregistrement['debut'])}.mp4"
+    writer = cv2.VideoWriter(str(MEDIA_DIR / nom), cv2.VideoWriter_fourcc(*"mp4v"), fps, CLIP_SIZE)
+    for _, image in frames:
+        writer.write(image)
+    writer.release()
+
+    payload = {
+        "label": "person",
+        "confidence": round(enregistrement["confiance"], 2),
+        "image": base64.b64encode(enregistrement["jpg"]).decode("ascii"),
+        "clip": nom,
+    }
+    client.publish(TOPIC, json.dumps(payload))
+
+
 def capture_loop(model: YOLO, client: mqtt.Client) -> None:
     global latest_jpeg
     cap = None
     opened = None
     presence = PresenceTracker()
+    tampon: deque = deque()
+    enregistrement: dict | None = None
     frames, debut_mesure = 0, time.time()
 
     while True:
@@ -135,6 +162,8 @@ def capture_loop(model: YOLO, client: mqtt.Client) -> None:
             opened = wanted
             frames, debut_mesure = 0, time.time()
             presence = PresenceTracker()
+            tampon.clear()
+            enregistrement = None
 
         ok, frame = cap.read()
         if not ok:
@@ -163,7 +192,8 @@ def capture_loop(model: YOLO, client: mqtt.Client) -> None:
             if category == "person" and (meilleure_personne is None or confidence > meilleure_personne):
                 meilleure_personne = confidence
 
-        declencher = presence.mettre_a_jour(meilleure_personne is not None, time.time())
+        maintenant = time.time()
+        declencher = presence.mettre_a_jour(meilleure_personne is not None, maintenant)
         with state_lock:
             presence_status["progression"] = round(presence.progression, 3)
             presence_status["confirmee"] = presence.alerte_envoyee
@@ -174,13 +204,23 @@ def capture_loop(model: YOLO, client: mqtt.Client) -> None:
         with frame_lock:
             latest_jpeg = jpg.tobytes()
 
-        if declencher:
-            payload = {
-                "label": "person",
-                "confidence": round(meilleure_personne, 2),
-                "image": base64.b64encode(jpg.tobytes()).decode("ascii"),
+        petite = cv2.resize(frame, CLIP_SIZE)
+        tampon.append((maintenant, petite))
+        while tampon and maintenant - tampon[0][0] > CLIP_SECONDS:
+            tampon.popleft()
+
+        if declencher and enregistrement is None:
+            enregistrement = {
+                "debut": maintenant,
+                "frames": list(tampon),
+                "jpg": jpg.tobytes(),
+                "confiance": meilleure_personne,
             }
-            client.publish(TOPIC, json.dumps(payload))
+        elif enregistrement is not None:
+            enregistrement["frames"].append((maintenant, petite))
+            if maintenant - enregistrement["debut"] >= CLIP_SECONDS:
+                threading.Thread(target=ecrire_clip, args=(enregistrement, client), daemon=True).start()
+                enregistrement = None
 
 
 def main() -> None:

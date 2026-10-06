@@ -79,16 +79,26 @@ def mail_anomalie(table_id: str, temp: float, hum: float, gas: int) -> EmailMess
     return _composer(f"[SENTINEL-X] Anomalie capteurs · table {table_id}", texte, html)
 
 
-def mail_personne(table_id: str, confiance: float, image: bytes | None) -> EmailMessage:
+LIMITE_PIECES_JOINTES = 20 * 1024 * 1024
+
+
+def mail_personne(
+    table_id: str,
+    confiance: float,
+    image: bytes | None,
+    clip: bytes | None = None,
+) -> EmailMessage:
     moment = _maintenant()
     pourcentage = round(confiance * 100)
     largeur = max(1, min(100, pourcentage))
+    taille_pieces = len(image or b"") + len(clip or b"")
+    clip_joint = clip is not None and taille_pieces <= LIMITE_PIECES_JOINTES
     photo_bloc = ""
     if image is not None:
         photo_bloc = f"""
     <div style="font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:{MUTED};margin:22px 0 8px;">Capture au moment de la détection</div>
     <img src="cid:photo" alt="Capture de la webcam" width="508" style="display:block;width:100%;max-width:508px;height:auto;border:1px solid {LINE};">
-    <div style="font-size:12px;color:{MUTED};margin-top:6px;">La même image est jointe au mail (capture.jpg).</div>"""
+    <div style="font-size:12px;color:{MUTED};margin-top:6px;">Capture jointe au mail (capture.jpg){' · vidéo de 10 secondes jointe (sentinel-clip.mp4)' if clip_joint else ''}.</div>"""
     corps = f"""
     <div style="font-size:15px;line-height:1.5;margin-bottom:18px;">
       Une personne a été détectée devant la caméra <b>{table_id}</b>, le <b>{_date(moment)}</b>.
@@ -106,6 +116,7 @@ def mail_personne(table_id: str, confiance: float, image: bytes | None) -> Email
         f"PERSONNE DÉTECTÉE · table {table_id}\n"
         f"Date : {_date(moment)}\nConfiance : {pourcentage} %\n"
         + ("La capture de la webcam est jointe.\n" if image is not None else "")
+        + ("La vidéo de 10 secondes est jointe.\n" if clip_joint else "")
     )
     msg = _composer(f"[SENTINEL-X] Personne détectée · table {table_id}", texte, html)
     if image is not None:
@@ -113,6 +124,8 @@ def mail_personne(table_id: str, confiance: float, image: bytes | None) -> Email
             image, maintype="image", subtype="jpeg", cid="<photo>"
         )
         msg.add_attachment(image, maintype="image", subtype="jpeg", filename="capture.jpg")
+    if clip_joint:
+        msg.add_attachment(clip, maintype="video", subtype="mp4", filename="sentinel-clip.mp4")
     return msg
 
 

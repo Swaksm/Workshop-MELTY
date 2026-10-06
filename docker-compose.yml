@@ -30,6 +30,7 @@ services:
         condition: service_started
     volumes:
       - model-data:/code/models
+      - ./media:/code/media:ro
 
 volumes:
   pgdata:

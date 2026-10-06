@@ -57,8 +57,14 @@ class Notifier:
     def anomalie(self, table_id: str, temp: float, hum: float, gas: int) -> bool:
         return self._publier(lambda: mail_anomalie(table_id, temp, hum, gas))
 
-    def personne(self, table_id: str, confiance: float, image: bytes | None) -> bool:
-        return self._publier(lambda: mail_personne(table_id, confiance, image))
+    def personne(
+        self,
+        table_id: str,
+        confiance: float,
+        image: bytes | None,
+        clip: bytes | None,
+    ) -> bool:
+        return self._publier(lambda: mail_personne(table_id, confiance, image, clip))
 
 
 notifier = Notifier()

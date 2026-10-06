@@ -1,15 +1,26 @@
 import threading
 from collections.abc import Callable
+from pathlib import Path
 
 from sqlalchemy.orm import Session
 
 from app.alerts_mail import decoder_image
+from app.config import settings
 from app.models import Detection
 from app.notifier import notifier
 from app.schemas import DetectionIn
 
 BUZZER_DURATION = 10.0
 _timers: dict[str, threading.Timer] = {}
+
+
+def lire_clip(nom: str | None) -> bytes | None:
+    if not nom:
+        return None
+    chemin = Path(settings.media_dir) / Path(nom).name
+    if chemin.suffix != ".mp4" or not chemin.is_file():
+        return None
+    return chemin.read_bytes()
 
 
 def record_person(
@@ -32,4 +43,9 @@ def record_person(
     _timers[table_id] = timer
     timer.start()
 
-    notifier.personne(table_id, detection.confidence, decoder_image(detection.image))
+    notifier.personne(
+        table_id,
+        detection.confidence,
+        decoder_image(detection.image),
+        lire_clip(detection.clip),
+    )

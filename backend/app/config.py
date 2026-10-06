@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     gmail_user: str = ""
     gmail_app_password: str = ""
     alert_to: str = ""
+    media_dir: str = "media"
 
 
 settings = Settings()
