@@ -46,7 +46,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Préparer la configuration
-        run: cp .env.example .env
+        run: 
+          cp .env.example .env
+          sed -i 's/^HOTSPOT_IP=.*/HOTSPOT_IP=127.0.0.2/' .env
       - name: Valider docker-compose
         run: docker compose config --quiet
       - name: Lancer la stack
