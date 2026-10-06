@@ -19,6 +19,7 @@ import {
   getDetections,
   getEtat,
   getMesures,
+  getPresence,
 } from "./api";
 
 const TABLE_ID = "table1";
@@ -38,11 +39,21 @@ export default function App() {
   const [videoOk, setVideoOk] = useState(true);
   const [cameras, setCameras] = useState({ disponibles: [], active: null });
   const [erreurCamera, setErreurCamera] = useState(null);
+  const [presence, setPresence] = useState({ progression: 0, confirmee: false });
 
   useEffect(() => {
     getCameras()
       .then(setCameras)
       .catch(() => setCameras({ disponibles: [], active: null }));
+  }, []);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      getPresence()
+        .then(setPresence)
+        .catch(() => setPresence({ progression: 0, confirmee: false }));
+    }, 500);
+    return () => clearInterval(id);
   }, []);
 
   async function onChoisirCamera(index) {
@@ -220,6 +231,23 @@ export default function App() {
           )}
         </div>
         {erreurCamera && <div className="banner error">{erreurCamera}</div>}
+        <div className="presence">
+          <div className="presence-head">
+            <span>Présence devant la caméra</span>
+            <span className={presence.confirmee ? "presence-ok" : ""}>
+              {presence.confirmee
+                ? "Confirmée : alerte envoyée"
+                : `${(presence.progression * 3).toFixed(1)} / 3 s`}
+            </span>
+          </div>
+          <div className="presence-bar" role="progressbar" aria-valuemin={0} aria-valuemax={3}
+               aria-valuenow={Number((presence.progression * 3).toFixed(1))}>
+            <div
+              className={`presence-fill ${presence.confirmee ? "done" : ""}`}
+              style={{ width: `${Math.round(presence.progression * 100)}%` }}
+            />
+          </div>
+        </div>
         <div className="video">
           {videoOk ? (
             <img

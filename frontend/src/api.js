@@ -23,6 +23,12 @@ export async function getCameras() {
   return res.json();
 }
 
+export async function getPresence() {
+  const res = await fetch("/vision/presence");
+  if (!res.ok) throw new Error(`Module vision injoignable (${res.status})`);
+  return res.json();
+}
+
 export async function choisirCamera(index) {
   const res = await fetch("/vision/camera", {
     method: "POST",

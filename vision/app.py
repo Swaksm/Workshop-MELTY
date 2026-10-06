@@ -32,6 +32,7 @@ frame_lock = threading.Lock()
 latest_jpeg: bytes | None = None
 available_cameras: list[int] = []
 camera_index = int(os.environ.get("CAMERA_INDEX", "0"))
+presence_status = {"progression": 0.0, "confirmee": False}
 
 app = FastAPI(title="SENTINEL-X Vision")
 
@@ -57,6 +58,12 @@ def stream():
 def cameras() -> dict:
     with state_lock:
         return {"disponibles": available_cameras, "active": camera_index}
+
+
+@app.get("/presence")
+def presence() -> dict:
+    with state_lock:
+        return dict(presence_status)
 
 
 @app.post("/camera")
@@ -91,16 +98,19 @@ class PresenceTracker:
         self.premiere_vue: float | None = None
         self.derniere_vue: float | None = None
         self.alerte_envoyee = False
+        self.progression = 0.0
 
     def mettre_a_jour(self, personne_presente: bool, maintenant: float) -> bool:
         if personne_presente:
             self.derniere_vue = maintenant
             if self.premiere_vue is None:
                 self.premiere_vue = maintenant
-            if not self.alerte_envoyee and maintenant - self.premiere_vue >= PRESENCE_SECONDS:
+            self.progression = min(1.0, (maintenant - self.premiere_vue) / PRESENCE_SECONDS)
+            if not self.alerte_envoyee and self.progression >= 1.0:
                 self.alerte_envoyee = True
                 return True
             return False
+        self.progression = 0.0
         if self.derniere_vue is not None and maintenant - self.derniere_vue >= ABSENCE_SECONDS:
             self.premiere_vue = None
             self.derniere_vue = None
@@ -154,6 +164,9 @@ def capture_loop(model: YOLO, client: mqtt.Client) -> None:
                 meilleure_personne = confidence
 
         declencher = presence.mettre_a_jour(meilleure_personne is not None, time.time())
+        with state_lock:
+            presence_status["progression"] = round(presence.progression, 3)
+            presence_status["confirmee"] = presence.alerte_envoyee
 
         ok, jpg = cv2.imencode(".jpg", frame)
         if not ok:
