@@ -60,6 +60,8 @@ def start_mqtt() -> mqtt.Client:
     _client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
     _client.on_connect = on_connect
     _client.on_message = on_message
+    if settings.mqtt_user:
+        _client.username_pw_set(settings.mqtt_user, settings.mqtt_password)
     _client.connect_async(settings.mqtt_host, settings.mqtt_port)
     _client.loop_start()
     return _client

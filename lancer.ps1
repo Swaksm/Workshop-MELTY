@@ -51,13 +51,43 @@ $hotspot = Get-AdresseHotspot
 Definir-Variable "HOTSPOT_IP" $hotspot
 if ($hotspot -eq "127.0.0.1") {
     Write-Host "Hotspot inactif : l'ESP32 ne pourra pas se connecter. Active le point d'accès puis relance."
-} elseif ($hotspot -ne "192.168.137.1") {
-    Write-Host "ATTENTION : le hotspot est en $hotspot, le firmware attend 192.168.137.1 (gateway et MQTT_HOST)."
+} elseif ($hotspot -ne "192.168.52.1") {
+    Write-Host "ATTENTION : le hotspot est en $hotspot, le firmware attend 192.168.52.1 (gateway et MQTT_HOST)."
 } else {
     Write-Host "Hotspot détecté : $hotspot"
 }
 
+function Lire-Env($nom) {
+    $fichier = "$racine\.env"
+    if (-not (Test-Path $fichier)) { return $null }
+    $ligne = Get-Content $fichier | Where-Object { $_ -match "^$nom=" } | Select-Object -First 1
+    if ($ligne) { return $ligne.Substring($nom.Length + 1) }
+    return $null
+}
+
+function New-Secret {
+    -join ((48..57 + 65..90 + 97..122) | Get-Random -Count 24 | ForEach-Object { [char]$_ })
+}
+
+foreach ($nom in @("MQTT_PASSWORD", "VISION_MQTT_PASSWORD", "ESP32_MQTT_PASSWORD")) {
+    $valeur = Lire-Env $nom
+    if (-not $valeur -or $valeur -eq "change-me") {
+        Definir-Variable $nom (New-Secret)
+    }
+}
+Definir-Variable "MQTT_USER" "backend"
+
+function Ecrire-Passwd {
+    $pwBackend = Lire-Env "MQTT_PASSWORD"
+    $pwVision = Lire-Env "VISION_MQTT_PASSWORD"
+    $pwEsp = Lire-Env "ESP32_MQTT_PASSWORD"
+    $dossier = (Join-Path $racine "mosquitto") -replace '\\', '/'
+    & docker run --rm -v "${dossier}:/work" eclipse-mosquitto:2 sh -c "mosquitto_passwd -b -c /work/passwd backend $pwBackend && mosquitto_passwd -b /work/passwd vision $pwVision && mosquitto_passwd -b /work/passwd esp32 $pwEsp && chmod 644 /work/passwd"
+    if ($LASTEXITCODE -ne 0) { throw "Création du fichier mosquitto/passwd échouée." }
+}
+
 Attendre-Docker
+Ecrire-Passwd
 Write-Host "1/3 Stack Docker (base, broker MQTT, backend)..."
 cmd /c "docker compose up -d --build"
 if ($LASTEXITCODE -ne 0) { throw "docker compose up a échoué." }
@@ -85,6 +115,8 @@ if (-not $SansVision) {
         if ($LASTEXITCODE -ne 0) { throw "Installation des dépendances vision échouée." }
     }
     $env:CAMERA_INDEX = "$CameraIndex"
+    $env:VISION_MQTT_USER = "vision"
+    $env:VISION_MQTT_PASSWORD = Lire-Env "VISION_MQTT_PASSWORD"
     Start-Process -FilePath $py -ArgumentList "app.py" -WorkingDirectory "$racine\vision" `
         -WindowStyle Hidden `
         -RedirectStandardOutput "$logs\vision.log" -RedirectStandardError "$logs\vision.err"
