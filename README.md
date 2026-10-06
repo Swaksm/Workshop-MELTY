@@ -275,7 +275,7 @@ curl http://localhost:8000/health
 | Le hotspot ne démarre pas | la carte Wi-Fi partage déjà la connexion de l'école |
 | L'ESP32 se connecte au Wi-Fi, mais `Connexion MQTT... échec` | mauvaise adresse du PC dans le firmware, ou pare-feu qui bloque 1883 |
 | Les autres appareils n'atteignent pas l'API | pare-feu qui bloque 8000, ou profil réseau « Public » |
-| `lancer.ps1` échoue avec « Docker ne répond pas » | Docker Desktop bloqué sur un ancien socket (`%LOCALAPPDATA%\Docker
+| `lancer.ps1` échoue avec « Docker ne répond pas » | Docker Desktop bloqué sur un ancien socket (`%LOCALAPPDATA%\Docker\run`). Redémarre Windows : le verrou disparaît. Ne pas réinitialiser Docker en usine, ça efface les volumes |
 un`). Redémarre Windows : le verrou disparaît. Ne pas réinitialiser Docker en usine, ça efface les volumes |
 | Le backend ne peut pas écrire les modèles (`Permission denied` sur `/code/models`) | le volume `model-data` appartient à root. Le corriger sans rien supprimer : `docker run --rm -v workshop_model-data:/m alpine chown -R 10001:10001 /m` |
 | Le module vision ne voit pas une webcam branchée | il ne scanne les caméras qu'au démarrage : relance `lancer.ps1` (ou `arreter.ps1` puis `lancer.ps1`) |
