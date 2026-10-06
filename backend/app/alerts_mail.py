@@ -6,77 +6,113 @@ from zoneinfo import ZoneInfo
 from app.config import settings
 
 PARIS = ZoneInfo("Europe/Paris")
-CSS = """
-body { margin: 0; background: #f3f6f9; font-family: Arial, Helvetica, sans-serif; color: #1d2630; }
-.card { max-width: 560px; margin: 24px auto; background: #ffffff; border: 1px solid #d5dde4; }
-.bar { padding: 18px 22px; color: #ffffff; }
-.bar.alert { background: #c0392b; }
-.bar.info { background: #0f5c7a; }
-.bar h1 { margin: 0; font-size: 18px; letter-spacing: 0.02em; }
-.bar p { margin: 4px 0 0; font-size: 13px; opacity: 0.9; }
-.body { padding: 18px 22px; }
-table { width: 100%; border-collapse: collapse; font-size: 14px; }
-td { padding: 8px 0; border-bottom: 1px solid #eef2f5; }
-td.k { color: #6b7b88; width: 42%; }
-td.v { font-weight: 600; }
-.photo { margin-top: 16px; }
-.photo img { width: 100%; display: block; border: 1px solid #d5dde4; }
-.foot { padding: 14px 22px; font-size: 12px; color: #6b7b88; background: #f8fafb; }
-"""
+
+NAVY = "#0f2236"
+ALERT = "#c0392b"
+INK = "#1d2630"
+MUTED = "#6b7b88"
+LINE = "#e3e9ee"
+PAGE = "#f2f5f8"
 
 
-def _maintenant() -> str:
-    return datetime.now(PARIS).strftime("%d/%m/%Y à %H:%M:%S")
+def _maintenant() -> datetime:
+    return datetime.now(PARIS)
 
 
-def _html(bar_class: str, titre: str, sous_titre: str, lignes: list[tuple[str, str]], photo: bool) -> str:
-    rows = "".join(f'<tr><td class="k">{k}</td><td class="v">{v}</td></tr>' for k, v in lignes)
-    bloc_photo = (
-        '<div class="photo"><img src="cid:photo" alt="Capture de la webcam"></div>' if photo else ""
+def _date(moment: datetime) -> str:
+    return moment.strftime("%d/%m/%Y à %H:%M")
+
+
+def _tuile(libelle: str, valeur: str) -> str:
+    return (
+        f'<td style="width:33%;padding:14px 12px;background:#f8fafb;border:1px solid {LINE};'
+        f'text-align:center;font-family:Arial,Helvetica,sans-serif;">'
+        f'<div style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:{MUTED};">{libelle}</div>'
+        f'<div style="font-size:22px;font-weight:bold;color:{INK};margin-top:4px;">{valeur}</div>'
+        "</td>"
     )
-    return f"""<!doctype html><html><head><meta charset="utf-8"><style>{CSS}</style></head>
-<body><div class="card">
-<div class="bar {bar_class}"><h1>{titre}</h1><p>{sous_titre}</p></div>
-<div class="body"><table>{rows}</table>{bloc_photo}</div>
-<div class="foot">SENTINEL-X · Message automatique, ne pas répondre.</div>
-</div></body></html>"""
+
+
+def _enveloppe(titre: str, sous_titre: str, corps: str, pied_photo: str = "") -> str:
+    return f"""<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:{PAGE};">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:{PAGE};padding:28px 12px;">
+<tr><td align="center">
+<table role="presentation" width="560" cellspacing="0" cellpadding="0" style="max-width:560px;width:100%;background:#ffffff;border:1px solid {LINE};">
+  <tr><td style="background:{NAVY};border-top:4px solid {ALERT};padding:22px 26px;font-family:Arial,Helvetica,sans-serif;">
+    <div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:#8fa8bd;">SENTINEL-X · Supervision</div>
+    <div style="font-size:24px;font-weight:bold;color:#ffffff;margin-top:6px;">{titre}</div>
+    <div style="font-size:13px;color:#b9c9d6;margin-top:4px;">{sous_titre}</div>
+  </td></tr>
+  <tr><td style="padding:24px 26px;font-family:Arial,Helvetica,sans-serif;color:{INK};">
+    {corps}
+  </td></tr>
+  {pied_photo}
+  <tr><td style="padding:14px 26px;background:#f8fafb;border-top:1px solid {LINE};font-family:Arial,Helvetica,sans-serif;font-size:11px;color:{MUTED};">
+    Message automatique envoyé par le système de surveillance. Au plus un mail toutes les 5 minutes.
+  </td></tr>
+</table>
+</td></tr></table>
+</body></html>"""
 
 
 def mail_anomalie(table_id: str, temp: float, hum: float, gas: int) -> EmailMessage:
-    maintenant = _maintenant()
-    lignes = [
-        ("Table", table_id),
-        ("Heure", maintenant),
-        ("Température", f"{temp:.1f} °C"),
-        ("Humidité", f"{hum:.1f} %"),
-        ("Gaz (ADC)", str(gas)),
-    ]
+    moment = _maintenant()
+    corps = f"""
+    <div style="font-size:15px;line-height:1.5;margin-bottom:18px;">
+      Les capteurs <b>{table_id}</b> ont relevé un comportement anormal, le <b>{_date(moment)}</b>.
+    </div>
+    <table role="presentation" width="100%" cellspacing="8" cellpadding="0">
+      <tr>{_tuile("Température", f"{temp:.1f} °C")}{_tuile("Humidité", f"{hum:.1f} %")}{_tuile("Gaz (ADC)", str(gas))}</tr>
+    </table>
+    <div style="font-size:13px;color:{MUTED};margin-top:16px;line-height:1.5;">
+      L'alarme sonore de la table est activée. Elle se coupe automatiquement quand les mesures redeviennent normales.
+    </div>"""
+    html = _enveloppe("Anomalie capteurs", _date(moment), corps)
     texte = (
-        f"Anomalie détectée sur {table_id} le {maintenant}.\n"
-        f"Température : {temp:.1f} °C\nHumidité : {hum:.1f} %\nGaz (ADC) : {gas}\n"
+        f"ANOMALIE CAPTEURS · table {table_id}\n"
+        f"Date : {_date(moment)}\n\n"
+        f"Température : {temp:.1f} °C\nHumidité : {hum:.1f} %\nGaz (ADC) : {gas}\n\n"
+        "L'alarme sonore est activée. Elle se coupe quand les mesures redeviennent normales.\n"
     )
-    html = _html("alert", "Anomalie détectée", f"Table {table_id}", lignes, photo=False)
-    return _composer(f"[SENTINEL-X] Anomalie capteurs · {table_id}", texte, html)
+    return _composer(f"[SENTINEL-X] Anomalie capteurs · table {table_id}", texte, html)
 
 
 def mail_personne(table_id: str, confiance: float, image: bytes | None) -> EmailMessage:
-    maintenant = _maintenant()
-    lignes = [
-        ("Table", table_id),
-        ("Heure", maintenant),
-        ("Détection", "Personne"),
-        ("Confiance", f"{confiance:.0%}"),
-    ]
+    moment = _maintenant()
+    pourcentage = round(confiance * 100)
+    largeur = max(1, min(100, pourcentage))
+    photo_bloc = ""
+    if image is not None:
+        photo_bloc = f"""
+    <div style="font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:{MUTED};margin:22px 0 8px;">Capture au moment de la détection</div>
+    <img src="cid:photo" alt="Capture de la webcam" width="508" style="display:block;width:100%;max-width:508px;height:auto;border:1px solid {LINE};">
+    <div style="font-size:12px;color:{MUTED};margin-top:6px;">La même image est jointe au mail (capture.jpg).</div>"""
+    corps = f"""
+    <div style="font-size:15px;line-height:1.5;margin-bottom:18px;">
+      Une personne a été détectée devant la caméra <b>{table_id}</b>, le <b>{_date(moment)}</b>.
+    </div>
+    <table role="presentation" width="100%" cellspacing="8" cellpadding="0">
+      <tr>{_tuile("Table", table_id)}{_tuile("Confiance", f"{pourcentage} %")}{_tuile("Heure", moment.strftime("%H:%M"))}</tr>
+    </table>
+    <div style="margin:16px 0 4px;font-size:12px;color:{MUTED};">Niveau de confiance</div>
+    <div style="background:{LINE};height:8px;width:100%;">
+      <div style="background:{ALERT};height:8px;width:{largeur}%;"></div>
+    </div>
+    {photo_bloc}"""
+    html = _enveloppe("Personne détectée", _date(moment), corps)
     texte = (
-        f"Personne détectée sur {table_id} le {maintenant} (confiance {confiance:.0%}).\n"
-        "La capture de la webcam est jointe.\n"
+        f"PERSONNE DÉTECTÉE · table {table_id}\n"
+        f"Date : {_date(moment)}\nConfiance : {pourcentage} %\n"
+        + ("La capture de la webcam est jointe.\n" if image is not None else "")
     )
-    html = _html("alert", "Personne détectée", f"Webcam · table {table_id}", lignes, photo=image is not None)
-    msg = _composer(f"[SENTINEL-X] Personne détectée · {table_id}", texte, html)
+    msg = _composer(f"[SENTINEL-X] Personne détectée · table {table_id}", texte, html)
     if image is not None:
         msg.get_body(preferencelist=("html",)).add_related(
             image, maintype="image", subtype="jpeg", cid="<photo>"
         )
+        msg.add_attachment(image, maintype="image", subtype="jpeg", filename="capture.jpg")
     return msg
 
 
