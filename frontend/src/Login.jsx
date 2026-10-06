@@ -57,7 +57,7 @@ export default function Login({ onSuccess }) {
           Se connecter
         </button>
 
-        <p className="login-foot">Table 1 · Accès réservé à l'équipe</p>
+        <p className="login-foot">Sentinel G9 · Accès réservé à l'équipe</p>
       </form>
     </div>
   );

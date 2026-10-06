@@ -23,6 +23,7 @@ import {
 } from "./api";
 
 const TABLE_ID = "table1";
+const TABLE_LABEL = "Sentinel G9";
 const POLL_MS = 3000;
 const PERSONNE_RECENTE_MS = 15000;
 
@@ -131,7 +132,7 @@ export default function App({ onLogout }) {
     <div className="page">
       <header className="topbar">
         <div>
-          <div className="kicker">SENTINEL-X · Table {TABLE_ID.replace("table", "")}</div>
+          <div className="kicker">SENTINEL-X · {TABLE_LABEL}</div>
           <h1>Supervision</h1>
         </div>
         <div className="status-group">
