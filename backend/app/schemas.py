@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class DetectionIn(BaseModel):
     label: Literal["person"]
     confidence: float = Field(ge=0, le=1)
+    image: str | None = None
 
 
 class DetectionOut(BaseModel):

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app import ml
 from app.models import Alert, Measurement
+from app.notifier import notifier
 
 _active: set[str] = set()
 
@@ -38,6 +39,7 @@ def evaluate(session: Session, table_id: str, set_buzzer: Callable[[str, str], N
         session.add(Alert(table_id=table_id, temp=last.temp, hum=last.hum, gas=last.gas))
         session.commit()
         set_buzzer(table_id, "on")
+        notifier.anomalie(table_id, last.temp, last.hum, last.gas)
     elif not anomaly and table_id in _active:
         _active.discard(table_id)
         set_buzzer(table_id, "off")

@@ -1,3 +1,4 @@
+import base64
 import json
 import os
 import sys
@@ -20,7 +21,8 @@ MQTT_HOST = os.environ.get("MQTT_HOST", "localhost")
 MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
 TABLE_ID = os.environ.get("TABLE_ID", "table1")
 TOPIC = f"sentinelx/{TABLE_ID}/vision"
-PUBLISH_INTERVAL = 5.0
+PRESENCE_SECONDS = 3.0
+ABSENCE_SECONDS = 2.0
 STREAM_PORT = int(os.environ.get("STREAM_PORT", "8001"))
 
 COLORS = {"person": (0, 0, 255), "animal": (255, 200, 0)}
@@ -84,11 +86,33 @@ def open_camera(index: int) -> cv2.VideoCapture:
     return cap
 
 
+class PresenceTracker:
+    def __init__(self) -> None:
+        self.premiere_vue: float | None = None
+        self.derniere_vue: float | None = None
+        self.alerte_envoyee = False
+
+    def mettre_a_jour(self, personne_presente: bool, maintenant: float) -> bool:
+        if personne_presente:
+            self.derniere_vue = maintenant
+            if self.premiere_vue is None:
+                self.premiere_vue = maintenant
+            if not self.alerte_envoyee and maintenant - self.premiere_vue >= PRESENCE_SECONDS:
+                self.alerte_envoyee = True
+                return True
+            return False
+        if self.derniere_vue is not None and maintenant - self.derniere_vue >= ABSENCE_SECONDS:
+            self.premiere_vue = None
+            self.derniere_vue = None
+            self.alerte_envoyee = False
+        return False
+
+
 def capture_loop(model: YOLO, client: mqtt.Client) -> None:
     global latest_jpeg
     cap = None
     opened = None
-    last_publish = 0.0
+    presence = PresenceTracker()
     frames, debut_mesure = 0, time.time()
 
     while True:
@@ -100,6 +124,7 @@ def capture_loop(model: YOLO, client: mqtt.Client) -> None:
             cap = open_camera(wanted)
             opened = wanted
             frames, debut_mesure = 0, time.time()
+            presence = PresenceTracker()
 
         ok, frame = cap.read()
         if not ok:
@@ -112,6 +137,7 @@ def capture_loop(model: YOLO, client: mqtt.Client) -> None:
             print(f"{frames / (time.time() - debut_mesure):.1f} images/s")
             frames, debut_mesure = 0, time.time()
 
+        meilleure_personne = None
         for box in result.boxes:
             label = model.names[int(box.cls)]
             confidence = float(box.conf)
@@ -124,16 +150,24 @@ def capture_loop(model: YOLO, client: mqtt.Client) -> None:
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
             cv2.putText(frame, f"{label} {confidence:.0%}", (x1, max(y1 - 6, 12)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+            if category == "person" and (meilleure_personne is None or confidence > meilleure_personne):
+                meilleure_personne = confidence
 
-            now = time.time()
-            if category == "person" and now - last_publish >= PUBLISH_INTERVAL:
-                client.publish(TOPIC, json.dumps({"label": "person", "confidence": round(confidence, 2)}))
-                last_publish = now
+        declencher = presence.mettre_a_jour(meilleure_personne is not None, time.time())
 
         ok, jpg = cv2.imencode(".jpg", frame)
-        if ok:
-            with frame_lock:
-                latest_jpeg = jpg.tobytes()
+        if not ok:
+            continue
+        with frame_lock:
+            latest_jpeg = jpg.tobytes()
+
+        if declencher:
+            payload = {
+                "label": "person",
+                "confidence": round(meilleure_personne, 2),
+                "image": base64.b64encode(jpg.tobytes()).decode("ascii"),
+            }
+            client.publish(TOPIC, json.dumps(payload))
 
 
 def main() -> None:

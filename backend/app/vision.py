@@ -3,7 +3,9 @@ from collections.abc import Callable
 
 from sqlalchemy.orm import Session
 
+from app.alerts_mail import decoder_image
 from app.models import Detection
+from app.notifier import notifier
 from app.schemas import DetectionIn
 
 BUZZER_DURATION = 10.0
@@ -29,3 +31,5 @@ def record_person(
     timer.daemon = True
     _timers[table_id] = timer
     timer.start()
+
+    notifier.personne(table_id, detection.confidence, decoder_image(detection.image))

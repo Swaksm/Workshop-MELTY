@@ -610,6 +610,21 @@ pytest
 
 Les tests couvrent la règle de classement (personne, animal, autre, confiance faible). Le modèle YOLO n'est pas couvert par les tests : il faut le vérifier avec la webcam.
 
+### Déclenchement d'une alerte vidéo
+
+Une personne ne déclenche rien au premier passage devant la caméra. Il faut qu'elle reste visible **3 secondes** pour qu'un événement soit envoyé. Si elle disparaît pendant **2 secondes**, la règle se réarme.
+
+### Alertes par mail
+
+Les alertes sont envoyées à l'adresse `ALERT_TO` depuis `GMAIL_USER`, via Gmail (SMTP, mot de passe d'application). Les trois variables sont dans le `.env` local, jamais dans Git.
+
+| Événement | Contenu du mail |
+|---|---|
+| Anomalie capteurs | table, heure, température, humidité, gaz |
+| Personne détectée | table, heure, confiance, et la capture annotée jointe |
+
+Règle : **au plus un mail toutes les 5 minutes**, tous événements confondus. Un événement pendant ce délai ne donne pas de mail (il reste dans la base et sur le dashboard).
+
 ### Limites
 
 - La détection tourne sur le processeur du PC : la fréquence d'images dépend de la machine (environ 5 à 15 images par seconde attendues, à vérifier).
