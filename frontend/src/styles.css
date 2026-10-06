@@ -240,6 +240,25 @@ h2 {
   height: 250px;
 }
 
+.chart-legend {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.chart-legend i {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
 .empty {
   height: 100%;
   min-height: 80px;
@@ -509,6 +528,9 @@ h2 {
 
 .presence-ok {
   color: var(--alert) !important;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .presence-bar {

@@ -5,6 +5,8 @@ import {
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceDot,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -28,6 +30,8 @@ const POLL_MS = 3000;
 const PERSONNE_RECENTE_MS = 15000;
 
 const formatHeure = (iso) => new Date(iso).toLocaleTimeString("fr-FR");
+const formatTick = (horodatage) => new Date(horodatage).toLocaleTimeString("fr-FR");
+const couleurAlerte = (a) => (a.kind === "hausse_temperature" ? "#f5b041" : "#ff6b6b");
 const formatDate = (iso) => new Date(iso).toLocaleString("fr-FR");
 
 export default function App({ onLogout }) {
@@ -92,12 +96,17 @@ export default function App({ onLogout }) {
   }, [rafraichir]);
 
   const serie = [...mesures].reverse().map((m) => ({
-    heure: formatHeure(m.received_at),
+    t: new Date(m.received_at).getTime(),
     temp: m.temp,
     hum: m.hum,
     gaz: m.gas,
   }));
   const derniere = mesures[0];
+  const debutFenetre = serie.length ? serie[0].t : 0;
+  const finFenetre = serie.length ? serie[serie.length - 1].t : 0;
+  const marqueurs = alertes
+    .map((a) => ({ ...a, t: new Date(a.created_at).getTime() }))
+    .filter((a) => a.t >= debutFenetre && a.t <= finFenetre);
 
   async function onEntrainer() {
     setMessage(null);
@@ -173,15 +182,47 @@ export default function App({ onLogout }) {
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={serie}>
                   <CartesianGrid stroke="#1b3147" strokeDasharray="3 3" />
-                  <XAxis dataKey="heure" stroke="#5c7891" fontSize={11} />
+                  <XAxis
+                    dataKey="t"
+                    type="number"
+                    domain={["dataMin", "dataMax"]}
+                    tickFormatter={formatTick}
+                    stroke="#5c7891"
+                    fontSize={11}
+                  />
                   <YAxis yAxisId="t" stroke="#5fd9f0" fontSize={11} unit="°C" />
                   <YAxis yAxisId="h" orientation="right" stroke="#74e0a8" fontSize={11} unit="%" />
-                  <Tooltip contentStyle={tooltipStyle} />
+                  <Tooltip contentStyle={tooltipStyle} labelFormatter={formatTick} />
                   <Line yAxisId="t" type="monotone" dataKey="temp" stroke="#5fd9f0" dot={false} strokeWidth={2} />
                   <Line yAxisId="h" type="monotone" dataKey="hum" stroke="#74e0a8" dot={false} strokeWidth={2} />
+                  {marqueurs.map((a) => (
+                    <ReferenceLine
+                      key={`l${a.id}`}
+                      x={a.t}
+                      yAxisId="t"
+                      stroke={couleurAlerte(a)}
+                      strokeDasharray="4 4"
+                    />
+                  ))}
+                  {marqueurs.map((a) => (
+                    <ReferenceDot
+                      key={`d${a.id}`}
+                      x={a.t}
+                      y={a.temp}
+                      yAxisId="t"
+                      r={6}
+                      fill={couleurAlerte(a)}
+                      stroke="#0e1d2e"
+                      strokeWidth={2}
+                    />
+                  ))}
                 </LineChart>
               </ResponsiveContainer>
             )}
+          </div>
+          <div className="chart-legend">
+            <span><i style={{ background: "#ff6b6b" }} /> Anomalie capteurs</span>
+            <span><i style={{ background: "#f5b041" }} /> Hausse de température</span>
           </div>
         </div>
 
@@ -200,13 +241,38 @@ export default function App({ onLogout }) {
                     </linearGradient>
                   </defs>
                   <CartesianGrid stroke="#1b3147" strokeDasharray="3 3" />
-                  <XAxis dataKey="heure" stroke="#5c7891" fontSize={11} />
+                  <XAxis
+                    dataKey="t"
+                    type="number"
+                    domain={["dataMin", "dataMax"]}
+                    tickFormatter={formatTick}
+                    stroke="#5c7891"
+                    fontSize={11}
+                  />
                   <YAxis stroke="#ff6f6f" fontSize={11} />
-                  <Tooltip contentStyle={tooltipStyle} />
+                  <Tooltip contentStyle={tooltipStyle} labelFormatter={formatTick} />
                   <Area type="monotone" dataKey="gaz" stroke="#ff6f6f" fill="url(#gazFill)" strokeWidth={2} />
+                  {marqueurs.map((a) => (
+                    <ReferenceLine key={`l${a.id}`} x={a.t} stroke={couleurAlerte(a)} strokeDasharray="4 4" />
+                  ))}
+                  {marqueurs.map((a) => (
+                    <ReferenceDot
+                      key={`d${a.id}`}
+                      x={a.t}
+                      y={a.gas}
+                      r={6}
+                      fill={couleurAlerte(a)}
+                      stroke="#0e1d2e"
+                      strokeWidth={2}
+                    />
+                  ))}
                 </AreaChart>
               </ResponsiveContainer>
             )}
+          </div>
+          <div className="chart-legend">
+            <span><i style={{ background: "#ff6b6b" }} /> Anomalie capteurs</span>
+            <span><i style={{ background: "#f5b041" }} /> Hausse de température</span>
           </div>
         </div>
       </section>
