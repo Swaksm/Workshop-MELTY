@@ -51,8 +51,8 @@ $hotspot = Get-AdresseHotspot
 Definir-Variable "HOTSPOT_IP" $hotspot
 if ($hotspot -eq "127.0.0.1") {
     Write-Host "Hotspot inactif : l'ESP32 ne pourra pas se connecter. Active le point d'accès puis relance."
-} elseif ($hotspot -ne "192.168.52.1") {
-    Write-Host "ATTENTION : le hotspot est en $hotspot, le firmware attend 192.168.52.1 (gateway et MQTT_HOST)."
+} elseif ($hotspot -ne "192.168.137.1") {
+    Write-Host "ATTENTION : le hotspot est en $hotspot, le firmware attend 192.168.137.1 (gateway et MQTT_HOST)."
 } else {
     Write-Host "Hotspot détecté : $hotspot"
 }
