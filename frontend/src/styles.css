@@ -199,8 +199,36 @@ h2 {
   cursor: pointer;
 }
 
+.btn {
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+
 .btn:hover {
   border-color: var(--text-dim);
+  background: #132b42;
+}
+
+.btn.primary {
+  background: var(--data);
+  border-color: var(--data);
+  color: #04121c;
+  font-weight: 600;
+}
+
+.btn.primary:hover {
+  background: #7fe4f5;
+  border-color: #7fe4f5;
+}
+
+.btn.ghost {
+  background: transparent;
+  color: var(--text-dim);
+}
+
+.btn.block {
+  width: 100%;
+  padding: 11px 14px;
+  font-size: 14px;
 }
 
 .btn:focus-visible {
@@ -336,9 +364,110 @@ h2 {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .presence-fill {
+  .presence-fill,
+  .btn {
     transition: none;
   }
+}
+
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 20% 10%, rgba(95, 217, 240, 0.12), transparent 40%),
+    radial-gradient(circle at 80% 90%, rgba(255, 111, 111, 0.08), transparent 40%),
+    var(--bg);
+}
+
+.login-card {
+  width: 100%;
+  max-width: 400px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--data);
+  padding: 36px 34px 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.35);
+}
+
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.login-brand h1 {
+  font-size: 30px;
+  margin-top: 2px;
+}
+
+.brand-mark {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border: 2px solid var(--data);
+  border-radius: 50%;
+  position: relative;
+}
+
+.brand-mark::after {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  background: var(--data);
+  border-radius: 50%;
+}
+
+.login-lead {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-dim);
+}
+
+.field input {
+  font-family: var(--font-body);
+  font-size: 15px;
+  color: var(--text);
+  background: var(--panel-alt);
+  border: 1px solid var(--line);
+  padding: 11px 14px;
+  width: 100%;
+}
+
+.login-foot {
+  margin: 4px 0 0;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-mute);
+}
+
+.field input:focus {
+  outline: 2px solid var(--data);
+  outline-offset: 1px;
+  border-color: transparent;
+}
+
+.panel {
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.02) inset;
+}
+
+.tile-value {
+  letter-spacing: -0.01em;
 }
 
 .video {

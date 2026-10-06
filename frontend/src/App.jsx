@@ -29,7 +29,7 @@ const PERSONNE_RECENTE_MS = 15000;
 const formatHeure = (iso) => new Date(iso).toLocaleTimeString("fr-FR");
 const formatDate = (iso) => new Date(iso).toLocaleString("fr-FR");
 
-export default function App() {
+export default function App({ onLogout }) {
   const [mesures, setMesures] = useState([]);
   const [alertes, setAlertes] = useState([]);
   const [detections, setDetections] = useState([]);
@@ -148,6 +148,9 @@ export default function App() {
           <span className={`pill ${etat.modele_entraine ? "ok" : "warn"}`}>
             {etat.modele_entraine ? "Modèle entraîné" : "Modèle non entraîné"}
           </span>
+          <button type="button" className="btn ghost" onClick={onLogout}>
+            Se déconnecter
+          </button>
         </div>
       </header>
 
