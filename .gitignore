@@ -11,3 +11,4 @@ backend/models/
 media/
 logs/
 mosquitto/passwd
+firmware/sentinel_temp/secrets.h

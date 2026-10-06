@@ -234,6 +234,7 @@ def main() -> None:
     print(f"Caméras disponibles : {available_cameras}")
 
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+    client.username_pw_set(os.environ.get("VISION_MQTT_USER", "vision"), os.environ.get("VISION_MQTT_PASSWORD", ""))
     client.connect(MQTT_HOST, MQTT_PORT)
     client.loop_start()
 
