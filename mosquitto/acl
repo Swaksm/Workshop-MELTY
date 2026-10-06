@@ -6,9 +6,9 @@ topic write sentinelx/+/cmd
 
 # esp32 : publie ses mesures, reçoit les commandes du buzzer
 user esp32
-topic write sentinelx/table1/sensors
-topic read sentinelx/table1/cmd
+topic write sentinelx/+/sensors
+topic read sentinelx/+/cmd
 
 # vision : publie les détections de la webcam
 user vision
-topic write sentinelx/table1/vision
+topic write sentinelx/+/vision
