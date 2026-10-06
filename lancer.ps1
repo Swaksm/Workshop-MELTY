@@ -27,6 +27,36 @@ function Attendre-Docker {
 
 Set-Location $racine
 
+function Get-AdresseHotspot {
+    $adresse = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+        Where-Object { $_.InterfaceAlias -like "*local**" -and $_.IPAddress -notlike "169.254.*" } |
+        Select-Object -First 1
+    if ($adresse) { return $adresse.IPAddress }
+    return "127.0.0.1"
+}
+
+function Definir-Variable($nom, $valeur) {
+    $fichier = "$racine\.env"
+    if (-not (Test-Path $fichier)) { Copy-Item "$racine\.env.example" $fichier }
+    $lignes = Get-Content $fichier
+    if ($lignes -match "^$nom=") {
+        $lignes = $lignes -replace "^$nom=.*", "$nom=$valeur"
+    } else {
+        $lignes += "$nom=$valeur"
+    }
+    Set-Content -Path $fichier -Value $lignes -Encoding ascii
+}
+
+$hotspot = Get-AdresseHotspot
+Definir-Variable "HOTSPOT_IP" $hotspot
+if ($hotspot -eq "127.0.0.1") {
+    Write-Host "Hotspot inactif : l'ESP32 ne pourra pas se connecter. Active le point d'accès puis relance."
+} elseif ($hotspot -ne "192.168.52.1") {
+    Write-Host "ATTENTION : le hotspot est en $hotspot, le firmware attend 192.168.52.1 (gateway et MQTT_HOST)."
+} else {
+    Write-Host "Hotspot détecté : $hotspot"
+}
+
 Attendre-Docker
 Write-Host "1/3 Stack Docker (base, broker MQTT, backend)..."
 cmd /c "docker compose up -d --build"
