@@ -104,6 +104,7 @@ Webcam USB (PC)          │        ▲          └────┬────�
 │   └── mosquitto.conf       # configuration du broker (développement)
 ├── tools/
 │   └── simulate_sensors.py  # publie de fausses mesures sur le broker
+├── media/                   # clips vidéo des détections (ignoré par Git, créé au premier clip)
 ├── .github/workflows/ci.yml
 ├── docker-compose.yml
 ├── .env.example
@@ -264,6 +265,7 @@ Fichier `.env` à la racine, créé à partir de `.env.example`. Il n'est pas ve
 | `GMAIL_USER` | `adresse@gmail.com` | `backend` | compte qui envoie les mails |
 | `GMAIL_APP_PASSWORD` | `abcdefghijklmnop` | `backend` | mot de passe d'application Google (16 caractères, sans espaces) |
 | `ALERT_TO` | `equipe@exemple.com` | `backend` | destinataire des alertes |
+| `MEDIA_DIR` | `media` | `backend` | dossier des clips vidéo, partagé avec le module vision |
 
 Si `GMAIL_USER`, `GMAIL_APP_PASSWORD` ou `ALERT_TO` manque, les mails sont désactivés sans erreur : les alertes restent dans la base, le buzzer fonctionne toujours.
 
@@ -276,6 +278,7 @@ Variables du module vision (lues par `vision/app.py`) :
 | `MQTT_PORT` | `1883` | port MQTT |
 | `TABLE_ID` | `table1` | table à laquelle rattacher les détections |
 | `STREAM_PORT` | `8001` | port de l'API et du flux vidéo |
+| `MEDIA_DIR` | dossier `media/` du dépôt | où écrire les clips vidéo (le backend lit le même dossier) |
 
 Le `.env` et les mots de passe ne doivent jamais être committés.
 
@@ -293,8 +296,9 @@ Le `.env` et les mots de passe ne doivent jamais être committés.
 
 1. Le module vision lit la webcam, lance YOLOv8 nano sur chaque image et dessine les cadres : rouge pour une personne, orange pour un animal.
 2. Une personne doit rester visible **3 secondes** pour être confirmée. Elle doit disparaître **2 secondes** pour que la règle se réarme.
-3. À la confirmation, le module publie sur `sentinelx/<table>/vision` le label, la confiance et la capture annotée (JPEG en base64).
-4. Le backend enregistre la détection dans `detections`, active le buzzer pendant 10 s, et envoie un mail si le délai de 5 minutes est écoulé.
+3. Le module garde en mémoire les 5 dernières secondes d'images. À la confirmation, il continue d'enregistrer 5 secondes de plus, puis écrit un clip MP4 (320×240) dans `media/`.
+4. Il publie sur `sentinelx/<table>/vision` le label, la confiance, la capture annotée (JPEG en base64) et le nom du clip.
+5. Le backend enregistre la détection dans `detections`, active le buzzer pendant 10 s, et envoie un mail si le délai de 5 minutes est écoulé. Le mail joint la capture, et la vidéo si le total reste sous 20 Mo.
 
 ### Commandes
 
@@ -317,7 +321,7 @@ Une **table** est un identifiant libre (`table1`). Il doit être identique côt�
 | Sens | Topic | Payload | Fréquence |
 |---|---|---|---|
 | ESP32 → backend | `sentinelx/<table>/sensors` | `{"temp":23.4,"hum":51.2,"gas":1234}` | toutes les 5 s |
-| vision → backend | `sentinelx/<table>/vision` | `{"label":"person","confidence":0.91,"image":"<base64 JPEG>"}` | une fois par présence confirmée |
+| vision → backend | `sentinelx/<table>/vision` | `{"label":"person","confidence":0.91,"image":"<base64 JPEG>","clip":"clip_table1_...mp4"}` | une fois par présence confirmée, 5 s après la confirmation |
 | backend → ESP32 | `sentinelx/<table>/cmd` | `{"buzzer":"on"}` ou `{"buzzer":"off"}` | sur événement |
 
 - `temp` : °C, un chiffre après la virgule. `hum` : humidité relative en %. `gas` : valeur ADC brute, entier de 0 à 4095.
@@ -524,9 +528,9 @@ Les comptes scolaires (Google Workspace) peuvent avoir cette option désactivée
 | Événement | Objet | Contenu |
 |---|---|---|
 | Anomalie capteurs | `[SENTINEL-X] Anomalie capteurs · table1` | température, humidité, gaz, rappel que l'alarme sonore est activée |
-| Personne détectée | `[SENTINEL-X] Personne détectée · table1` | confiance avec barre, capture annotée intégrée et jointe (`capture.jpg`) |
+| Personne détectée | `[SENTINEL-X] Personne détectée · table1` | confiance avec barre, capture annotée intégrée et jointe (`capture.jpg`), vidéo de 10 s jointe (`sentinel-clip.mp4`) si elle tient dans la limite |
 
-Les mails sont en HTML, avec une version texte pour les clients qui ne l'affichent pas.
+Les mails sont en HTML, avec une version texte pour les clients qui ne l'affichent pas. La vidéo est écartée, et seule la capture reste jointe, si capture et vidéo dépassent ensemble 20 Mo.
 
 ### Règle d'envoi
 
@@ -540,7 +544,7 @@ Les envois se font dans un thread séparé : un mail lent ou en échec ne bloque
 
 | Suite | Nombre | Contenu |
 |---|---|---|
-| `backend/tests` | 19 | modèle capteurs, API, détection, vision (enregistrement et buzzer), mails (cooldown, contenu, photo) |
+| `backend/tests` | 21 | modèle capteurs, API, détection, vision (enregistrement et buzzer), mails (cooldown, contenu, photo, vidéo) |
 | `vision/tests` | 4 | règle de classement : personne, animal, autre objet, confiance faible |
 
 Backend, en local (Python 3.12) :
@@ -604,6 +608,8 @@ Scénario de test :
 - **Fausse alerte capteurs après un pic** : pendant que le pic sort de la fenêtre de 30 mesures, la pente change et une mesure normale peut être signalée.
 - **Délai de mail global** : un événement pendant les 5 minutes suivantes ne donne pas de mail, même si c'est un événement différent.
 - **Quota Gmail** : un compte personnel est limité à environ 500 mails par jour.
+- **Vidéo basse qualité** : les clips sont en 320×240, pour rester petits et sous la limite de 20 Mo. Ce n'est pas la qualité du flux affiché sur le dashboard.
+- **Clips non nettoyés** : les fichiers dans `media/` ne sont jamais supprimés automatiquement.
 - **État en mémoire** : alerte active, délai de mail et présence vidéo ne sont pas persistés.
 - **MQTT en clair, sans authentification** : Mosquitto accepte les connexions anonymes sur 1883. Le sujet exige MQTTS et des identifiants.
 - **API et flux vidéo sans authentification**, et le flux circule en clair sur le réseau.
