@@ -419,10 +419,18 @@ function Tuile({ label, valeur, unite }) {
 }
 
 function Explication({ details }) {
-  if (!details) return null;
+  const [ouvert, setOuvert] = useState(false);
   return (
-    <details className="explication">
-      <summary>Pourquoi cette alerte ?</summary>
+    <div className="explication">
+      <button type="button" className="btn small" onClick={() => setOuvert((o) => !o)} aria-expanded={ouvert}>
+        {ouvert ? "Masquer le détail" : "Détail"}
+      </button>
+      {ouvert && !details && (
+        <p className="explication-note">
+          Pas de détail enregistré pour cette alerte : elle a été créée avant la mise à jour.
+        </p>
+      )}
+      {ouvert && details && (
       <div className="explication-body">
         <div className="explication-modele">
           Modèle {details.modele}
@@ -451,7 +459,8 @@ function Explication({ details }) {
         </table>
         <p className="explication-note">Écart en nombre d'écarts-types par rapport à la baseline apprise. Au-delà de 3 σ, la valeur est surlignée.</p>
       </div>
-    </details>
+      )}
+    </div>
   );
 }
 

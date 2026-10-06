@@ -380,12 +380,9 @@ h2 {
   font-size: 12px;
 }
 
-.explication summary {
-  cursor: pointer;
-  color: var(--data);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.04em;
+.btn.small {
+  font-size: 12px;
+  padding: 5px 12px;
 }
 
 .explication-body {
