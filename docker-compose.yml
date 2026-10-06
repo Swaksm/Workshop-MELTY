@@ -1,7 +1,22 @@
+# Options communes : redémarrage auto, pas d'élévation de privilèges, logs limités (MCO)
+x-common: &common
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
 services:
   db:
+    <<: *common
     image: postgres:16
     env_file: .env
+    mem_limit: 512m
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]   # minimum requis par l'image postgres
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -9,20 +24,34 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    # aucun port publié : joignable uniquement par le réseau Docker
 
   mosquitto:
+    <<: *common
     image: eclipse-mosquitto:2
+    user: "1883:1883"            # tourne sous l'utilisateur mosquitto, jamais root
+    mem_limit: 128m
+    cap_drop: [ALL]
+    read_only: true              # seul le volume de données est inscriptible
     ports:
-      - "1883:1883"
+      - "127.0.0.1:1883:1883"            # module vision (sur le PC)
+      - "${HOTSPOT_IP}:1883:1883"        # ESP32 (réseau de table uniquement)
     volumes:
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - mosquitto-data:/mosquitto/data
 
   backend:
+    <<: *common
     build: ./backend
     env_file: .env
+    mem_limit: 1g
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs:
+      - /tmp
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"            # dashboard sur le PC
+      - "${HOTSPOT_IP}:8000:8000"        # autres appareils de la table
     depends_on:
       db:
         condition: service_healthy
@@ -31,6 +60,11 @@ services:
     volumes:
       - model-data:/code/models
       - ./media:/code/media:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
 
 volumes:
   pgdata:
