@@ -50,7 +50,8 @@ jobs:
           cp .env.example .env
           sed -i 's/^HOTSPOT_IP=.*/HOTSPOT_IP=127.0.0.2/' .env
           for v in MQTT_PASSWORD VISION_MQTT_PASSWORD ESP32_MQTT_PASSWORD; do
-            sed -i "s/^$v=.*/$v=$(openssl rand -hex 12)/" .env
+            sed -i "/^$v=/d" .env
+            echo "$v=$(openssl rand -hex 12)" >> .env
           done
           docker run --rm -v "$PWD/mosquitto:/work" eclipse-mosquitto:2 sh -c "mosquitto_passwd -b -c /work/passwd backend $(grep ^MQTT_PASSWORD= .env | cut -d= -f2) && mosquitto_passwd -b /work/passwd vision $(grep ^VISION_MQTT_PASSWORD= .env | cut -d= -f2) && mosquitto_passwd -b /work/passwd esp32 $(grep ^ESP32_MQTT_PASSWORD= .env | cut -d= -f2) && chmod 644 /work/passwd"
       - name: Valider docker-compose
