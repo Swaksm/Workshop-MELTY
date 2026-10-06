@@ -315,10 +315,12 @@ export default function App({ onLogout }) {
           ) : (
             <ul className="alerts">
               {alertes.map((a) => (
-                <li key={a.id} className="alert-item">
+                <li key={a.id} className={`alert-item ${a.kind === "hausse_temperature" ? "hausse" : ""}`}>
                   <span className="stripe" />
                   <div>
-                    <div className="alert-title">Anomalie détectée</div>
+                    <div className="alert-title">
+                      {a.kind === "hausse_temperature" ? "Hausse de température" : "Anomalie détectée"}
+                    </div>
                     <div className="alert-meta">
                       {formatDate(a.created_at)} · {a.temp.toFixed(1)} °C · {a.hum.toFixed(1)} % · gaz {a.gas}
                     </div>

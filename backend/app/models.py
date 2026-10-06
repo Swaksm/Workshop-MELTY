@@ -36,6 +36,7 @@ class Alert(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     table_id: Mapped[str] = mapped_column(String(64), index=True)
+    kind: Mapped[str] = mapped_column(String(32), default="anomalie", server_default="anomalie")
     temp: Mapped[float] = mapped_column(Float)
     hum: Mapped[float] = mapped_column(Float)
     gas: Mapped[int] = mapped_column(Integer)

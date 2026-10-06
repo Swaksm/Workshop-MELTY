@@ -43,6 +43,7 @@ class AlertOut(BaseModel):
 
     id: int
     table_id: str
+    kind: str
     temp: float
     hum: float
     gas: int

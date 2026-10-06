@@ -79,6 +79,33 @@ def mail_anomalie(table_id: str, temp: float, hum: float, gas: int) -> EmailMess
     return _composer(f"[SENTINEL-X] Anomalie capteurs · table {table_id}", texte, html)
 
 
+def mail_hausse(table_id: str, temp: float, probabilite: float) -> EmailMessage:
+    moment = _maintenant()
+    pourcentage = round(probabilite * 100)
+    corps = f"""
+    <div style="font-size:15px;line-height:1.5;margin-bottom:18px;">
+      La température des capteurs <b>{table_id}</b> monte de façon continue, le <b>{_date(moment)}</b>.
+    </div>
+    <table role="presentation" width="100%" cellspacing="8" cellpadding="0">
+      <tr>{_tuile("Température actuelle", f"{temp:.1f} °C")}{_tuile("Probabilité de hausse", f"{pourcentage} %")}</tr>
+    </table>
+    <div style="margin:16px 0 4px;font-size:12px;color:{MUTED};">Niveau de confiance du modèle</div>
+    <div style="background:{LINE};height:8px;width:100%;">
+      <div style="background:#f5b041;height:8px;width:{max(1, min(100, pourcentage))}%;"></div>
+    </div>
+    <div style="font-size:13px;color:{MUTED};margin-top:16px;line-height:1.5;">
+      Ce n'est pas un seuil : le modèle a reconnu une tendance à la hausse sur les dernières minutes.
+    </div>"""
+    html = _enveloppe("Hausse de température", _date(moment), corps)
+    texte = (
+        f"HAUSSE DE TEMPÉRATURE · table {table_id}\n"
+        f"Date : {_date(moment)}\nTempérature actuelle : {temp:.1f} °C\n"
+        f"Probabilité de hausse : {pourcentage} %\n\n"
+        "Le modèle a reconnu une tendance à la hausse sur les dernières minutes.\n"
+    )
+    return _composer(f"[SENTINEL-X] Hausse de température · table {table_id}", texte, html)
+
+
 LIMITE_PIECES_JOINTES = 20 * 1024 * 1024
 
 

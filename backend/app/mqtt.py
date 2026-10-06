@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from app.config import settings
 from app.db import SessionLocal
 from app.detection import evaluate
+from app.detection_temp import evaluate_hausse
 from app.models import Measurement
 from app.schemas import DetectionIn, MeasurementIn
 from app.vision import record_person
@@ -36,6 +37,7 @@ def _on_sensors(table_id: str, payload: bytes) -> None:
         session.add(Measurement(table_id=table_id, **data.model_dump()))
         session.commit()
         evaluate(session, table_id, send_buzzer)
+        evaluate_hausse(session, table_id, send_buzzer)
 
 
 def _on_vision(table_id: str, payload: bytes) -> None:

@@ -5,7 +5,7 @@ import time
 
 from email.message import EmailMessage
 
-from app.alerts_mail import mail_anomalie, mail_personne
+from app.alerts_mail import mail_anomalie, mail_hausse, mail_personne
 from app.config import settings
 
 log = logging.getLogger(__name__)
@@ -56,6 +56,9 @@ class Notifier:
 
     def anomalie(self, table_id: str, temp: float, hum: float, gas: int) -> bool:
         return self._publier(lambda: mail_anomalie(table_id, temp, hum, gas))
+
+    def hausse(self, table_id: str, temp: float, probabilite: float) -> bool:
+        return self._publier(lambda: mail_hausse(table_id, temp, probabilite))
 
     def personne(
         self,

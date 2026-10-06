@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 
 import numpy as np
 from fastapi import Depends, FastAPI, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app import detection, ml, models
@@ -27,6 +27,10 @@ def get_session() -> Iterator[Session]:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(engine)
+    with engine.begin() as conn:
+        conn.execute(
+            text("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS kind VARCHAR(32) NOT NULL DEFAULT 'anomalie'")
+        )
     mqtt_client = start_mqtt()
     yield
     mqtt_client.loop_stop()
