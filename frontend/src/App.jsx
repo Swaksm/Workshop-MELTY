@@ -27,6 +27,7 @@ import {
 const TABLE_ID = "table1";
 const TABLE_LABEL = "Sentinel G9";
 const POLL_MS = 3000;
+const FENETRE_GRAPHIQUE_MS = 60 * 60 * 1000;
 const PERSONNE_RECENTE_MS = 15000;
 
 const formatHeure = (iso) => new Date(iso).toLocaleTimeString("fr-FR");
@@ -95,12 +96,15 @@ export default function App({ onLogout }) {
     return () => clearInterval(id);
   }, [rafraichir]);
 
-  const serie = [...mesures].reverse().map((m) => ({
-    t: new Date(m.received_at).getTime(),
-    temp: m.temp,
-    hum: m.hum,
-    gaz: m.gas,
-  }));
+  const serie = [...mesures]
+    .reverse()
+    .map((m) => ({
+      t: new Date(m.received_at).getTime(),
+      temp: m.temp,
+      hum: m.hum,
+      gaz: m.gas,
+    }))
+    .filter((p) => Date.now() - p.t <= FENETRE_GRAPHIQUE_MS);
   const derniere = mesures[0];
   const debutFenetre = serie.length ? serie[0].t : 0;
   const finFenetre = serie.length ? serie[serie.length - 1].t : 0;
