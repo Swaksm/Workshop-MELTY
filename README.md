@@ -73,7 +73,10 @@ Webcam USB (PC)          │        ▲          └────┬────�
 │   ├── app/
 │   │   ├── main.py          # routes FastAPI et cycle de vie (MQTT, tables)
 │   │   ├── mqtt.py          # abonnements capteurs et vision, publication des commandes
-│   │   ├── detection.py     # évaluation d'une mesure, alerte capteurs, buzzer, mail
+│   │   ├── detection.py     # évaluation d'une mesure (LOF), alerte capteurs, buzzer, mail
+│   │   ├── ml_temp.py       # Random Forest de tendance de température (entraîné sur données simulées)
+│   │   ├── detection_temp.py # alerte de hausse de température
+
 │   │   ├── vision.py        # détection de personne : enregistrement, buzzer, mail
 │   │   ├── ml.py            # features, entraînement et chargement du modèle capteurs
 │   │   ├── notifier.py      # envoi des mails, délai de 5 minutes
@@ -94,6 +97,9 @@ Webcam USB (PC)          │        ▲          └────┬────�
 │   ├── pytest.ini
 │   └── requirements.txt
 ├── frontend/
+│   ├── src/main.jsx         # point d'entrée, bascule entre connexion et supervision
+│   ├── src/Login.jsx        # écran de connexion
+│   ├── src/auth.js          # identifiants et session (sessionStorage)
 │   ├── src/App.jsx          # écran de supervision
 │   ├── src/api.js           # appels à l'API et au module vision
 │   ├── src/styles.css
@@ -289,7 +295,8 @@ Le `.env` et les mots de passe ne doivent jamais être committés.
 1. L'ESP32 lit le DHT22 et le MQ-2, et publie un JSON sur `sentinelx/<table>/sensors` toutes les 5 s.
 2. Le backend valide le message (`temp` et `hum` en nombres, `gas` en entier) et l'insère dans `measurements`.
 3. Si le modèle de la table existe, il évalue les 30 dernières mesures (voir [section 11](#11-modèle-dia-des-capteurs)).
-4. Au passage en anomalie : une ligne dans `alerts`, `buzzer on`, et un mail si le délai de 5 minutes est écoulé.
+4. Au passage en anomalie : une ligne dans `alerts` (type `anomalie`), `buzzer on`, et un mail si le délai de 5 minutes est écoulé.
+5. Une tendance à la hausse de température, détectée par le Random Forest : une ligne dans `alerts` (type `hausse_temperature`), `buzzer on`, et un mail avec son propre délai (voir [section 11](#11-modèle-dia-des-capteurs)).
 5. Au retour à la normale : `buzzer off`.
 
 ### Vidéo
@@ -350,12 +357,13 @@ PostgreSQL 16. Les tables sont créées au démarrage du backend (`create_all`).
 | `gas` | `integer` | non null | valeur ADC brute |
 | `received_at` | `timestamptz` | défaut `now()`, indexée | heure de réception |
 
-### `alerts` : une ligne par passage en anomalie capteurs
+### `alerts` : une ligne par alerte capteurs
 
 | Colonne | Type | Contrainte | Description |
 |---|---|---|---|
 | `id` | `integer` | clé primaire, auto | identifiant |
 | `table_id` | `varchar(64)` | non null, indexée | table |
+| `kind` | `varchar(32)` | défaut `anomalie` | `anomalie` (LOF) ou `hausse_temperature` (Random Forest) |
 | `temp`, `hum`, `gas` | `double precision`, `double precision`, `integer` | non null | valeurs de la mesure déclenchante |
 | `created_at` | `timestamptz` | défaut `now()`, indexée | heure de l'alerte |
 
@@ -472,6 +480,18 @@ Le modèle ne contient aucun seuil écrit à la main. Il apprend ce qui est norm
 
 **Choix du modèle.** Sur des données simulées, Isolation Forest détectait 94 % des pics avec 6,8 % de fausses alertes, et LOF détecte 100 % des pics avec 0,5 % de fausses alertes. Ces chiffres viennent de données simulées : à revérifier avec les vraies mesures.
 
+### Hausse de température (Random Forest)
+
+Un second modèle surveille uniquement la **tendance** de la température, sans valeur fixe.
+
+- **Entrée** : les 30 dernières températures d'une table. Quatre caractéristiques sont calculées : pente sur la fenêtre, pente sur les 10 dernières mesures, variation totale, écart-type.
+- **Modèle** : `RandomForestClassifier` (150 arbres, profondeur 8), entraîné au démarrage du backend.
+- **Entraînement** : sur des exemples **simulés** : montées (pentes de 0,03 à 0,3 °C par mesure), stabilités et descentes (classées « pas de hausse »). Ces exemples ne viennent pas de vraies mesures : le modèle ne connaît que ce que la simulation lui a montré.
+- **Décision** : une hausse est signalée quand la probabilité dépasse **0,8**. L'alerte se termine quand elle redescend sous **0,5**. Ce ne sont pas des seuils sur la température : ce sont des seuils sur la confiance du modèle, comme pour YOLO.
+- **Effet** : une alerte `hausse_temperature`, le buzzer pendant la hausse, et un mail (voir [section 13](#13-alertes-par-mail)).
+
+Le bruit du DHT22 (environ ±0,5 °C) peut masquer une montée lente. Ce modèle doit être réentraîné sur de vraies mesures avant d'être fiable.
+
 ## 12. Surveillance vidéo
 
 Une webcam branchée sur le PC serveur surveille la table. YOLOv8 nano détecte les objets image par image et renvoie le flux avec les détections dessinées.
@@ -528,13 +548,14 @@ Les comptes scolaires (Google Workspace) peuvent avoir cette option désactivée
 | Événement | Objet | Contenu |
 |---|---|---|
 | Anomalie capteurs | `[SENTINEL-X] Anomalie capteurs · table1` | température, humidité, gaz, rappel que l'alarme sonore est activée |
+| Hausse de température | `[SENTINEL-X] Hausse de température · table1` | température actuelle, probabilité de hausse du modèle avec barre |
 | Personne détectée | `[SENTINEL-X] Personne détectée · table1` | confiance avec barre, capture annotée intégrée et jointe (`capture.jpg`), vidéo de 10 s jointe (`sentinel-clip.mp4`) si elle tient dans la limite |
 
 Les mails sont en HTML, avec une version texte pour les clients qui ne l'affichent pas. La vidéo est écartée, et seule la capture reste jointe, si capture et vidéo dépassent ensemble 20 Mo.
 
 ### Règle d'envoi
 
-**Au plus un mail toutes les 5 minutes**, tous événements confondus. Un événement pendant ce délai ne donne pas de mail : il reste dans la base et sur le dashboard. Le délai est en mémoire, il repart à zéro au redémarrage du backend.
+**Au plus un mail toutes les 5 minutes par type d'alerte** : un mail de capteurs, un mail de hausse de température et un mail de personne ont chacun leur propre délai. Un événement pendant le délai de son type ne donne pas de mail, mais il reste dans la base et sur le dashboard. Au maximum, on peut donc recevoir trois mails dans une même fenêtre de 5 minutes. Le délai est en mémoire, il repart à zéro au redémarrage du backend.
 
 Les envois se font dans un thread séparé : un mail lent ou en échec ne bloque ni MQTT, ni l'API.
 
@@ -544,7 +565,7 @@ Les envois se font dans un thread séparé : un mail lent ou en échec ne bloque
 
 | Suite | Nombre | Contenu |
 |---|---|---|
-| `backend/tests` | 21 | modèle capteurs, API, détection, vision (enregistrement et buzzer), mails (cooldown, contenu, photo, vidéo) |
+| `backend/tests` | 26 | modèle capteurs, hausse de température, API, détection, vision (enregistrement et buzzer), mails (cooldown par type, contenu, photo, vidéo) |
 | `vision/tests` | 4 | règle de classement : personne, animal, autre objet, confiance faible |
 
 Backend, en local (Python 3.12) :
@@ -606,7 +627,8 @@ Scénario de test :
 
 - **Buzzer partagé** : l'alerte capteurs et la détection vidéo utilisent le même buzzer. Une fin de buzzer déclenchée par l'une peut couper l'autre.
 - **Fausse alerte capteurs après un pic** : pendant que le pic sort de la fenêtre de 30 mesures, la pente change et une mesure normale peut être signalée.
-- **Délai de mail global** : un événement pendant les 5 minutes suivantes ne donne pas de mail, même si c'est un événement différent.
+- **Délai de mail par type** : un événement du même type pendant les 5 minutes suivantes ne donne pas de mail.
+- **Modèle de hausse simulé** : le Random Forest de température n'a été entraîné que sur des données simulées. Il doit être réentraîné sur de vraies mesures.
 - **Quota Gmail** : un compte personnel est limité à environ 500 mails par jour.
 - **Vidéo basse qualité** : les clips sont en 320×240, pour rester petits et sous la limite de 20 Mo. Ce n'est pas la qualité du flux affiché sur le dashboard.
 - **Clips non nettoyés** : les fichiers dans `media/` ne sont jamais supprimés automatiquement.
@@ -618,7 +640,8 @@ Scénario de test :
 - **Un seul modèle capteurs par table**, sans versionnage.
 - **Firmware incomplet** : le firmware de `firmware/` ne fait que le Wi-Fi en IP fixe et l'OTA. La lecture du DHT22 et la publication MQTT sont dans un autre croquis, non committé.
 - **Vision hors CI** : le module ne tourne pas dans la CI, et la règle de classement est la seule partie testée automatiquement.
-- **Frontend** : une seule table codée en dur (`table1`) dans `App.jsx`. Pas encore de conteneur Docker pour le frontend.
+- **Frontend** : une seule table codée en dur (`table1`) dans `App.jsx`, affichée sous le nom « Sentinel G9 ». Pas encore de conteneur Docker pour le frontend.
+- **Connexion sans sécurité réelle** : l'écran de connexion (`admin` / `admin`) est vérifié dans le navigateur. Il ne protège ni l'API ni le flux vidéo.
 
 ## 17. Feuille de route
 
