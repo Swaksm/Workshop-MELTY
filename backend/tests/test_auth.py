@@ -72,9 +72,10 @@ def test_blocage_apres_trop_d_echecs(client):
     assert connexion(client).status_code == 429  # même le bon mot de passe est bloqué
 
 
-def test_sans_mot_de_passe_configure_personne_ne_se_connecte(client, monkeypatch):
-    monkeypatch.setattr(auth.settings, "admin_password", "")
-    assert connexion(client, "").status_code == 401
+@pytest.mark.parametrize("valeur", ["", "change-me"])
+def test_mot_de_passe_absent_ou_d_exemple_refuse(client, monkeypatch, valeur):
+    monkeypatch.setattr(auth.settings, "admin_password", valeur)
+    assert connexion(client, valeur).status_code == 401
 
 
 def test_deconnexion_efface_le_cookie(client):

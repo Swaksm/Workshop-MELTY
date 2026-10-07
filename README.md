@@ -44,16 +44,16 @@ Webcam USB (PC)          │        ▲ MQTT 1883     │ SMTP (Gmail)          
                          │   └────────────────┘                                              │
                          └───────────────────────────────────────────────────────────────────┘
                                          ▲                    ▲
-                    dashboard React (Vite, :5173) ── proxy /api → :8000, /vision → :8001
-                                         ▲
-                                  navigateur du PC
+      navigateur ──HTTPS :443──► proxy Caddy (conteneur) ─┬─ /api/*    → backend :8000
+      (PC ou autre poste)                                 ├─ /vision/* → vision :8001 (si session valide)
+                                                          └─ /         → dashboard React compilé
 ```
 
 
 - Les **capteurs** passent par MQTT, puis le backend les enregistre et évalue le modèle d'IA.
 - La **vidéo** passe par le module vision, qui tourne sur le PC et non dans Docker : un conteneur Windows n'accède pas à la webcam USB.
 - Les **alertes** déclenchent le buzzer et, au plus une fois toutes les 5 minutes, un mail.
-- Seuls le MQTT chiffré (8883) et l'API (8000) sont joignables depuis le Wi-Fi. Détail du réseau, plan d'adressage et flux autorisés : [docs/reseau.md](docs/reseau.md).
+- Depuis le Wi-Fi, seuls deux ports sont joignables, tous deux chiffrés : MQTT/TLS (8883) pour l'ESP32 et HTTPS (443) pour le dashboard, l'API et la vidéo. L'API et la vidéo exigent une connexion. Réseau : [docs/reseau.md](docs/reseau.md). Sécurité (matrice menace → mesure → preuve) : [docs/securite.md](docs/securite.md).
 
 ## 2. Stack
 
@@ -67,7 +67,7 @@ Webcam USB (PC)          │        ▲ MQTT 1883     │ SMTP (Gmail)          
 | Frontend | React 18, Vite 5, Recharts |
 | Mails | SMTP Gmail (mot de passe d'application) |
 | Tests et CI | pytest, GitHub Actions, GHCR |
-| Infra | Docker Compose, cAdvisor (supervision) |
+| Infra | Docker Compose, Caddy (reverse proxy HTTPS), cAdvisor (supervision) |
 
 ## 3. Structure du dépôt
 
@@ -76,6 +76,7 @@ Webcam USB (PC)          │        ▲ MQTT 1883     │ SMTP (Gmail)          
 ├── backend/
 │   ├── app/
 │   │   ├── main.py          # routes FastAPI et cycle de vie (MQTT, tables)
+│   │   ├── auth.py          # connexion, jeton JWT (cookie HttpOnly ou Bearer), anti-force brute
 │   │   ├── mqtt.py          # abonnements capteurs et vision, publication des commandes
 │   │   ├── detection.py     # évaluation d'une mesure (LOF), alerte capteurs, buzzer, mail
 │   │   ├── ml_temp.py       # Random Forest de tendance de température (entraîné sur données simulées)
@@ -109,7 +110,10 @@ Webcam USB (PC)          │        ▲ MQTT 1883     │ SMTP (Gmail)          
 │   ├── src/App.jsx          # écran de supervision
 │   ├── src/api.js           # appels à l'API et au module vision
 │   ├── src/styles.css
-│   └── vite.config.js       # proxy /api → :8000 et /vision → :8001
+│   ├── vite.config.js       # dev : proxy /api → :8000 et /vision → :8001
+│   └── Dockerfile           # compile le dashboard et l'embarque dans l'image Caddy
+├── proxy/
+│   └── Caddyfile            # reverse proxy HTTPS : dashboard, /api, /vision (session vérifiée)
 ├── firmware/
 │   └── sentinel_wifi/sentinel_wifi.ino  # connexion WiFi en IP fixe, OTA
 ├── mosquitto/
@@ -117,7 +121,8 @@ Webcam USB (PC)          │        ▲ MQTT 1883     │ SMTP (Gmail)          
 │   ├── acl                  # droits de chaque compte MQTT
 │   └── gen-certs.sh         # CA (une fois) et certificat du broker pour l'IP du PC
 ├── docs/
-│   └── reseau.md            # réseau : schéma, plan d'adressage, flux, isolation
+│   ├── reseau.md            # réseau : schéma, plan d'adressage, flux, isolation
+│   └── securite.md          # matrice de sécurité, protocole de preuves
 ├── tools/
 │   ├── simulate_sensors.py  # publie de fausses mesures sur le broker
 │   └── supervision.ps1      # état de la machine : conteneurs, logs, volumes
@@ -132,13 +137,19 @@ Webcam USB (PC)          │        ▲ MQTT 1883     │ SMTP (Gmail)          
 
 ### Lancement rapide (Windows)
 
-Une seule commande démarre tout : Docker Desktop si besoin, la stack (base, broker, backend), le dashboard et le module vision.
+Une seule commande démarre tout : Docker Desktop si besoin, la stack (base, broker, backend, proxy HTTPS, supervision), le dashboard de développement et le module vision.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\lancer.ps1
 ```
 
 Options : `-CameraIndex 1` pour une autre webcam, `-SansVision` ou `-SansFront` pour ne pas lancer une partie, `-Build` pour reconstruire l'image du backend, `-ForcerIp 10.0.3.42` si la détection de l'adresse Wi-Fi se trompe.
+
+Ensuite :
+
+- dashboard : **https://localhost** sur le PC, **https://&lt;IP du PC&gt;** depuis un autre poste du Wi-Fi. Identifiant `admin`, mot de passe `ADMIN_PASSWORD` du fichier `.env` (généré au premier lancement) ;
+- pour éviter l'avertissement du navigateur, importer `mosquitto/certs/ca.crt` dans les « Autorités de certification racines de confiance » du poste (une fois) ;
+- dashboard de développement (rechargement à chaud) : http://localhost:5173.
 
 À chaque lancement, le script détecte l'adresse du PC sur le Wi-Fi, (re)génère le certificat TLS du broker si elle a changé, et met à jour `MQTT_HOST` et `ca_cert.h` pour le firmware (voir [Réseau de la table](#5-réseau-de-la-table)).
 
@@ -169,7 +180,8 @@ curl http://localhost:8000/health   # {"status":"ok"}
 
 | Service | Port hôte | Rôle |
 |---|---|---|
-| `backend` | 8000 | API REST et Swagger, liée à `127.0.0.1` et à `SERVER_IP` (adresse Wi-Fi du PC) |
+| `proxy` | 443 | Caddy : HTTPS, dashboard compilé, `/api` et `/vision`, sur `127.0.0.1` et `SERVER_IP` |
+| `backend` | 8000 | API REST et Swagger, sur `127.0.0.1` uniquement (depuis le Wi-Fi : `https://<IP>/api`) |
 | `mosquitto` | 1883 et 8883 | broker MQTT : 1883 en clair sur `127.0.0.1` (backend, vision), 8883 en TLS sur `127.0.0.1` et `SERVER_IP` (ESP32) |
 | `db` | non exposé | PostgreSQL, réseau Docker uniquement |
 | `cadvisor` | 8080 | supervision CPU/RAM par conteneur, sur `127.0.0.1` uniquement |
@@ -208,7 +220,7 @@ docker compose down -v     # supprime aussi la base et les modèles entraînés
 
 ## 5. Réseau de la table
 
-Le PC serveur et l'ESP32 sont sur le **Wi-Fi de l'école**. Seul le MQTT de l'ESP32 traverse ce Wi-Fi partagé : il est chiffré en TLS et authentifié. Tout le reste (vision, dashboard, base, supervision) reste sur le PC.
+Le PC serveur et l'ESP32 sont sur le **Wi-Fi de l'école**. Deux flux seulement traversent ce Wi-Fi partagé, tous deux chiffrés : le MQTT de l'ESP32 (TLS, 8883) et le HTTPS du dashboard (443). Tout le reste (vision, base, supervision, API directe) reste sur le PC.
 
 Le dossier complet est dans **[docs/reseau.md](docs/reseau.md)** : schéma, plan d'adressage, ports exposés, matrice des flux autorisés, isolation vis-à-vis des autres groupes, et l'amélioration prévue (réseau privé dédié `192.168.10.0/24`).
 
@@ -216,7 +228,7 @@ Le dossier complet est dans **[docs/reseau.md](docs/reseau.md)** : schéma, plan
 
 | Équipement | Adresse | Rôle |
 |---|---|---|
-| PC serveur | DHCP de l'école (ex. `10.0.3.173/24`, passerelle `10.0.3.1`) | Mosquitto (8883 TLS), API (8000) |
+| PC serveur | DHCP de l'école (ex. `10.0.3.173/24`, passerelle `10.0.3.1`) | Mosquitto (8883 TLS), proxy HTTPS (443) |
 | ESP32 | DHCP de l'école | publie les mesures en TLS |
 | Conteneurs | réseau Docker interne `172.18.0.0/16` | joignables par leur nom de service uniquement |
 
@@ -245,14 +257,12 @@ Les certificats sont dans `mosquitto/certs/` et ne sont jamais commités : `ca.c
 
 ### Ouvrir les ports (pare-feu Windows)
 
-Le Wi-Fi de l'école est souvent classé en profil **Public** par Windows (vérifier avec `Get-NetConnectionProfile`). Les règles doivent couvrir ce profil, sinon l'ESP32 est bloqué. Une fois, dans un terminal **administrateur** :
+En général rien à faire : la règle de pare-feu installée par Docker Desktop laisse passer les ports qu'il publie. Si l'ESP32 ou les autres postes restent bloqués (le Wi-Fi de l'école est en profil **Public**, à vérifier avec `Get-NetConnectionProfile`), ouvrir les deux ports une fois, dans un terminal **administrateur** :
 
 ```powershell
 New-NetFirewallRule -DisplayName "SENTINEL-X MQTT TLS" -Direction Inbound -Protocol TCP -LocalPort 8883 -Action Allow -Profile Any
-New-NetFirewallRule -DisplayName "SENTINEL-X API" -Direction Inbound -Protocol TCP -LocalPort 8000 -Action Allow -Profile Any
+New-NetFirewallRule -DisplayName "SENTINEL-X HTTPS" -Direction Inbound -Protocol TCP -LocalPort 443 -Action Allow -Profile Any
 ```
-
-Le durcissement complet du pare-feu fait partie de la partie cybersécurité.
 
 ### Qui parle à qui
 
@@ -263,7 +273,9 @@ Le durcissement complet du pare-feu fait partie de la partie cybersécurité.
 | Backend (conteneur) | `db:5432` | PostgreSQL (réseau Docker) | enregistre les données |
 | Vision (PC) | `localhost:1883` | MQTT en clair (boucle locale) | publie `sentinelx/table1/vision` |
 | Backend (conteneur) | `smtp.gmail.com:587` | SMTP (STARTTLS) | envoie les mails |
-| Navigateur du PC | `localhost:5173`, `:8000`, `:8001`, `:8080` | HTTP | dashboard, API, flux vidéo, cAdvisor |
+| Navigateur (PC ou autre poste) | `SERVER_IP:443` | HTTPS | dashboard, API (`/api`), flux vidéo (`/vision`), connexion requise |
+| Proxy Caddy (conteneur) | `backend:8000`, `host.docker.internal:8001` | HTTP interne au PC | relaie l'API et le flux vidéo |
+| Navigateur du PC | `localhost:5173`, `:8000`, `:8080` | HTTP local | dashboard de dev, Swagger, cAdvisor |
 
 Le backend parle à Mosquitto et à la base par les **noms de service Docker**, pas par l'IP du PC.
 
@@ -284,7 +296,9 @@ curl http://localhost:8000/health
 | L'ESP32 se connecte au Wi-Fi, mais `Connexion MQTT... échec` | l'IP du PC a changé et l'ESP32 n'a pas été reflashé, pare-feu qui bloque 8883 (profil Public), ou mot de passe `esp32` / `ca_cert.h` obsolètes |
 | `lancer.ps1` annonce `Wi-Fi inactif` | pas de carte Wi-Fi connectée avec une passerelle : se connecter au Wi-Fi, ou forcer avec `-ForcerIp` |
 | `docker compose up` : `SERVER_IP` manquante | lancement manuel sans `SERVER_IP` dans le `.env` : lancer `lancer.ps1` ou renseigner la variable |
-| Les autres appareils n'atteignent pas l'API | pare-feu qui bloque 8000 |
+| Les autres postes n'atteignent pas le dashboard | pare-feu qui bloque 443 (voir « Ouvrir les ports »), ou mauvaise adresse : utiliser `https://<IP du PC>` |
+| Avertissement « connexion non sécurisée » dans le navigateur | la CA du projet n'est pas importée sur ce poste : importer `mosquitto/certs/ca.crt` |
+| Le dashboard revient à l'écran de connexion | le jeton a expiré (8 h) ou le backend a été recréé avec un autre `JWT_SECRET` : se reconnecter |
 | `lancer.ps1` échoue avec « Docker ne répond pas » | Docker Desktop bloqué sur un ancien socket (`%LOCALAPPDATA%\Docker\run`). Redémarre Windows : le verrou disparaît. Ne pas réinitialiser Docker en usine, ça efface les volumes |
 | Le backend ne peut pas écrire les modèles (`Permission denied` sur `/code/models`) | le volume `model-data` appartient à root. Le corriger sans rien supprimer : `docker run --rm -v sentinelx_model-data:/m alpine chown -R 10001:10001 /m` |
 | Le module vision ne voit pas une webcam branchée | il ne scanne les caméras qu'au démarrage : relance `lancer.ps1` (ou `arreter.ps1` puis `lancer.ps1`) |
@@ -310,6 +324,10 @@ Fichier `.env` à la racine, créé à partir de `.env.example`. Il n'est pas ve
 | `RETENTION_MESURES_JOURS` | `7` | `backend` | mesures plus anciennes purgées (toutes les heures) |
 | `RETENTION_CLIPS_JOURS` | `3` | `backend` | clips vidéo plus anciens supprimés |
 | `MEDIA_MAX_MO` | `500` | `backend` | taille maximale du dossier des clips, les plus anciens partent en premier |
+| `ADMIN_USER` | `admin` | `backend` | identifiant de connexion au dashboard et à l'API |
+| `ADMIN_PASSWORD` | (généré) | `backend` | mot de passe de connexion, 24 caractères aléatoires générés par `lancer.ps1`. Vide : personne ne peut se connecter |
+| `JWT_SECRET` | (généré) | `backend` | clé de signature des jetons. La changer déconnecte tout le monde |
+| `JWT_DUREE_HEURES` | `8` | `backend` | durée de validité d'une session |
 
 Si `GMAIL_USER`, `GMAIL_APP_PASSWORD` ou `ALERT_TO` manque, les mails sont désactivés sans erreur : les alertes restent dans la base, le buzzer fonctionne toujours.
 
@@ -322,6 +340,7 @@ Variables du module vision (lues par `vision/app.py`) :
 | `MQTT_PORT` | `1883` | port MQTT |
 | `TABLE_ID` | `table1` | table à laquelle rattacher les détections |
 | `STREAM_PORT` | `8001` | port de l'API et du flux vidéo |
+| `STREAM_HOST` | `127.0.0.1` | adresse d'écoute ; depuis le réseau, le flux passe par le proxy HTTPS |
 | `MEDIA_DIR` | dossier `media/` du dépôt | où écrire les clips vidéo (le backend lit le même dossier) |
 
 Le `.env` et les mots de passe ne doivent jamais être committés.
@@ -451,13 +470,20 @@ L'API est documentée par FastAPI.
 | http://localhost:8000/redoc | même documentation, en lecture seule |
 | http://localhost:8000/openapi.json | spécification OpenAPI, à importer dans Postman ou un générateur de client |
 
-Base : `http://localhost:8000/api/v1`.
+Base : `https://<IP du PC>/api/v1` (via le proxy), ou `http://localhost:8000/api/v1` sur le PC. Swagger n'est servi qu'en local.
+
+### Authentification
+
+Toutes les routes `/api/v1` exigent un jeton, sauf la connexion. `POST /api/v1/auth/login` avec `{"utilisateur": "admin", "mot_de_passe": "..."}` renvoie un jeton JWT (valable 8 h) et le pose dans un cookie `sentinelx_token` (HttpOnly, Secure, SameSite=Strict) : le navigateur l'envoie tout seul. Un script l'envoie dans l'en-tête `Authorization: Bearer <jeton>`. Après 10 échecs en une minute, la connexion est refusée (429) pendant une minute.
 
 ### Routes
 
 | Méthode | Route | Rôle |
 |---|---|---|
-| GET | `/health` | état du service |
+| GET | `/health` | état du service (public) |
+| POST | `/api/v1/auth/login` | connexion : jeton dans la réponse et dans un cookie (public) |
+| POST | `/api/v1/auth/logout` | efface le cookie de session |
+| GET | `/api/v1/auth/verifier` | 204 si la session est valide, 401 sinon (utilisée par le proxy pour le flux vidéo) |
 | GET | `/api/v1/mesures?table_id=&limit=` | dernières mesures, plus récentes d'abord (limit max 1000, défaut 100) |
 | GET | `/api/v1/alertes?table_id=&limit=` | alertes capteurs (limit max 500, défaut 50) |
 | GET | `/api/v1/detections?table_id=&limit=` | personnes détectées (limit max 500, défaut 50) |
@@ -481,16 +507,20 @@ Base : `http://localhost:8000/api/v1`.
 | Code | Quand |
 |---|---|
 | `400` | entraînement avec moins de 100 mesures |
+| `401` | jeton absent, expiré ou invalide ; mauvais identifiants |
+| `429` | trop d'échecs de connexion |
 | `422` | corps ou paramètres invalides |
 | `500` | erreur interne, voir les logs du backend |
 
 ### Exemples
 
 ```bash
-curl "http://localhost:8000/api/v1/mesures?table_id=table1&limit=5"
-curl "http://localhost:8000/api/v1/detections?table_id=table1"
-curl -X POST http://localhost:8000/api/v1/tables/table1/entrainement
-curl -X POST http://localhost:8000/api/v1/tables/table1/commande \
+TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login \
+     -H "Content-Type: application/json" \
+     -d '{"utilisateur":"admin","mot_de_passe":"<ADMIN_PASSWORD>"}' | python -c "import sys,json;print(json.load(sys.stdin)['token'])")
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8000/api/v1/mesures?table_id=table1&limit=5"
+curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:8000/api/v1/tables/table1/entrainement
+curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:8000/api/v1/tables/table1/commande \
      -H "Content-Type: application/json" -d '{"buzzer":"on"}'
 ```
 
@@ -503,7 +533,7 @@ curl -X POST http://localhost:8000/api/v1/tables/table1/commande \
 | POST | `/camera` | corps `{"index": 1}` : change de webcam sans redémarrer |
 | GET | `/presence` | `{"progression": 0.66, "confirmee": false}` : avancement vers les 3 secondes |
 
-L'API n'a pas d'authentification : elle est prévue pour un usage local, sur le réseau de la table.
+Le module vision n'écoute que sur `127.0.0.1`. Depuis le réseau, il est joignable par `https://<IP du PC>/vision/...` : le proxy demande d'abord au backend si la session est valide (401 sinon).
 
 ## 11. Modèle d'IA des capteurs
 
@@ -534,7 +564,7 @@ Le modèle considère donc que **toutes les mesures d'entraînement sont normale
 Lancer l'entraînement :
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/tables/table1/entrainement
+curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:8000/api/v1/tables/table1/entrainement
 ```
 
 ### Entraînement du modèle de hausse (Random Forest)
@@ -615,7 +645,7 @@ Le module liste les webcams disponibles au démarrage (index 0 à 4). Le dashboa
 - La détection tourne sur le processeur : la fréquence d'images dépend de la machine. Sur un portable Windows, on mesure environ 13 à 15 images par seconde (le sujet demande moins de 100 ms par image).
 - Un éclairage faible, une personne de dos ou partiellement cachée peuvent ne pas être détectés.
 - Aucune vidéo n'est enregistrée : seules la détection et la capture envoyée par mail existent.
-- Le flux vidéo n'est pas authentifié et circule en clair sur le réseau de la table.
+- Sur le PC lui-même, `http://localhost:8001` reste sans authentification (depuis le réseau, le flux passe par le proxy HTTPS, qui exige une session).
 
 ## 13. Alertes par mail
 
@@ -652,7 +682,7 @@ Les envois se font dans un thread séparé : un mail lent ou en échec ne bloque
 
 | Suite | Nombre | Contenu |
 |---|---|---|
-| `backend/tests` | 38 | modèle capteurs, hausse de température, API, détection, vision (enregistrement et buzzer), mails (cooldown par type, contenu, photo, vidéo, détail/phrase causale), rétention (purge des mesures et des clips), supervision |
+| `backend/tests` | 52 | modèle capteurs, hausse de température, API, détection, vision (enregistrement et buzzer), mails (cooldown par type, contenu, photo, vidéo, détail/phrase causale), rétention (purge des mesures et des clips), supervision, authentification (jeton, cookie, 401, anti-force brute) |
 | `vision/tests` | 4 | règle de classement : personne, animal, autre objet, confiance faible |
 
 Backend, en local (Python 3.12) :
@@ -748,22 +778,22 @@ La purge tourne au démarrage du backend puis toutes les heures. Les durées se 
 - **Vidéo basse qualité** : les clips sont en 320×240, pour rester petits et sous la limite de 20 Mo. Ce n'est pas la qualité du flux affiché sur le dashboard.
 - **État en mémoire** : alerte active, délai de mail et présence vidéo ne sont pas persistés.
 - **1883 reste sans TLS** : volontaire (réseau Docker interne et boucle locale uniquement, jamais exposé au Wi-Fi), mais ça veut dire que backend et vision ne se parlent pas en chiffré entre eux — sans conséquence tant qu'ils restent sur la même machine.
-- **API et flux vidéo sans authentification**, et le flux circule en clair sur le réseau.
+- **Un seul compte** (`admin`) partagé par l'équipe, sans rôles. Derrière Docker Desktop, tous les clients arrivent avec la même adresse : la limite d'échecs de connexion est commune à tous (fenêtre d'une minute).
+- **CA privée** : chaque poste doit importer `ca.crt` pour que le navigateur fasse confiance au dashboard.
 - **Pas de migrations** : le schéma est créé par `create_all`. Un changement impose de supprimer le volume `pgdata`.
 - **Un seul modèle capteurs par table**, sans versionnage.
 - **Réseau partagé avec les autres groupes** : le Wi-Fi de l'école n'isole pas la table. TLS, authentification et ACL protègent les données, mais pas contre un déni de service. L'adresse du PC change avec le DHCP, ce qui impose de reflasher l'ESP32 (voir [docs/reseau.md](docs/reseau.md)).
 - **cAdvisor et le socket containerd** : cAdvisor a besoin de ce socket, qui donne la main sur les conteneurs. Il est monté en lecture seule et l'interface n'est publiée qu'en local.
 - **Firmware non testé sur le matériel réel** : `firmware/sentinel_temp/sentinel_temp.ino` lit les capteurs, publie en MQTT/TLS et pilote le buzzer et les deux écrans OLED, mais n'a pas encore tourné sur un vrai ESP32.
 - **Vision hors CI** : le module ne tourne pas dans la CI, et la règle de classement est la seule partie testée automatiquement.
-- **Frontend** : une seule table codée en dur (`table1`) dans `App.jsx`, affichée sous le nom « Sentinel G9 ». Pas encore de conteneur Docker pour le frontend.
-- **Connexion sans sécurité réelle** : l'écran de connexion (`admin` / `admin`) est vérifié dans le navigateur. Il ne protège ni l'API ni le flux vidéo.
+- **Frontend** : une seule table codée en dur (`table1`) dans `App.jsx`, affichée sous le nom « Sentinel G9 ». Le dashboard compilé est servi par le proxy Caddy (`https://localhost`).
 
 ## 18. Feuille de route
 
 1. Tester le firmware sur un vrai ESP32 (Wi-Fi labo, TLS, double OLED).
-2. Authentification de l'API et du flux vidéo.
+2. Comptes nominatifs et rôles (lecture seule / commande) pour l'API.
 3. Migrations Alembic.
 4. Correction de la fausse alerte après un pic.
 5. Buzzer distinct pour la vidéo et pour les capteurs.
-6. Sélection de la table dans le frontend, conteneur Docker du frontend.
+6. Sélection de la table dans le frontend.
 7. Réseau privé dédié à la table (`192.168.10.0/24`, point d'accès propre, ESP32 en IP fixe) : isolation réelle et fin des reflashs liés au DHCP de l'école.

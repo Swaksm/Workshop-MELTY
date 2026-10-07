@@ -29,7 +29,8 @@ FENETRE_ECHECS_S = 60
 
 # Sans JWT_SECRET dans le .env, une clé aléatoire est tirée au démarrage :
 # les jetons ne survivent alors pas à un redémarrage du backend.
-_cle = settings.jwt_secret or secrets.token_urlsafe(32)
+VALEURS_EXEMPLE = {"", "change-me"}  # valeurs de .env.example : jamais acceptées
+_cle = settings.jwt_secret if settings.jwt_secret not in VALEURS_EXEMPLE else secrets.token_urlsafe(32)
 _echecs: dict[str, list[float]] = {}
 _echecs_lock = threading.Lock()
 
@@ -98,8 +99,8 @@ def _noter_echec(ip: str, maintenant: float) -> None:
 
 
 def _identifiants_valides(utilisateur: str, mot_de_passe: str) -> bool:
-    if not settings.admin_password:
-        return False  # pas de mot de passe configuré : personne ne se connecte
+    if settings.admin_password in VALEURS_EXEMPLE:
+        return False  # pas de vrai mot de passe configuré : personne ne se connecte
     ok_user = hmac.compare_digest(utilisateur.encode(), settings.admin_user.encode())
     ok_mdp = hmac.compare_digest(mot_de_passe.encode(), settings.admin_password.encode())
     return ok_user and ok_mdp
