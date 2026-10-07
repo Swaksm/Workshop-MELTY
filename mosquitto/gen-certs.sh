@@ -1,6 +1,7 @@
 #!/bin/sh
 # Génère les certificats TLS du broker dans mosquitto/certs/
 # Usage : sh mosquitto/gen-certs.sh IP_DU_SERVEUR
+#         (CERTS_DIR=/chemin pour choisir le dossier, défaut : mosquitto/certs à côté du script)
 #
 # - La CA (ca.crt / ca.key) n'est créée qu'une seule fois : c'est elle que
 #   l'ESP32 connaît (firmware/sentinel_temp/ca_cert.h). Tant qu'on la garde,
@@ -10,7 +11,7 @@
 #   bien celle écrite dans le certificat.
 set -eu
 IP="${1:?Usage : gen-certs.sh IP_DU_SERVEUR}"
-DIR="$(cd "$(dirname "$0")" && pwd)/certs"
+DIR="${CERTS_DIR:-$(cd "$(dirname "$0")" && pwd)/certs}"
 mkdir -p "$DIR"
 cd "$DIR"
 

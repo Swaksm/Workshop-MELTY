@@ -10,12 +10,14 @@ from app.detection import evaluate
 from app.detection_temp import evaluate_hausse
 from app.models import Measurement
 from app.schemas import DetectionIn, MeasurementIn
+from app.supervision import on_sys
 from app.vision import record_person
 
 log = logging.getLogger(__name__)
 
 SENSORS_TOPIC = "sentinelx/+/sensors"
 VISION_TOPIC = "sentinelx/+/vision"
+SYS_TOPIC = "$SYS/broker/#"
 _client: mqtt.Client | None = None
 
 
@@ -27,6 +29,7 @@ def on_connect(client, userdata, flags, reason_code, properties):
     if reason_code == 0:
         client.subscribe(SENSORS_TOPIC)
         client.subscribe(VISION_TOPIC)
+        client.subscribe(SYS_TOPIC)
     else:
         log.error("Connexion MQTT refusée : %s", reason_code)
 
@@ -60,6 +63,7 @@ def start_mqtt() -> mqtt.Client:
     _client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
     _client.on_connect = on_connect
     _client.on_message = on_message
+    _client.message_callback_add(SYS_TOPIC, on_sys)
     if settings.mqtt_user:
         _client.username_pw_set(settings.mqtt_user, settings.mqtt_password)
     _client.connect_async(settings.mqtt_host, settings.mqtt_port)

@@ -1,4 +1,4 @@
-param(
+﻿param(
     [int]$CameraIndex = 0,
     [switch]$SansVision,
     [switch]$SansFront,
@@ -113,7 +113,8 @@ function Ecrire-Certificats($ip) {
     }
     Write-Host "Certificat TLS du broker pour $ip..."
     $dossier = (Join-Path $racine "mosquitto") -replace '\\', '/'
-    & docker run --rm -v "${dossier}:/work" alpine:3.20 sh -c "apk add --no-cache openssl >/dev/null && sed 's/\r$//' /work/gen-certs.sh > /tmp/gen.sh && sh /tmp/gen.sh $ip"
+    # CERTS_DIR : le script est copié dans /tmp (fins de ligne), il doit écrire dans le dossier monté
+    & docker run --rm -v "${dossier}:/work" -e CERTS_DIR=/work/certs alpine:3.20 sh -c "apk add --no-cache openssl >/dev/null && sed 's/\r$//' /work/gen-certs.sh > /tmp/gen.sh && sh /tmp/gen.sh $ip" | Out-Host
     if ($LASTEXITCODE -ne 0) { throw "Création des certificats TLS échouée." }
     return $true
 }

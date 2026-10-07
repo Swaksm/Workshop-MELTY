@@ -6,7 +6,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from app import detection, ml, models
+from app import detection, ml, models, retention, supervision
 from app.db import Base, SessionLocal, engine
 from app.mqtt import send_buzzer, start_mqtt
 from app.schemas import (
@@ -34,7 +34,9 @@ async def lifespan(app: FastAPI):
         conn.execute(text("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS details JSON"))
         conn.execute(text("ALTER TABLE measurements ADD COLUMN IF NOT EXISTS pir INTEGER"))
     mqtt_client = start_mqtt()
+    arret_retention = retention.demarrer()
     yield
+    arret_retention.set()
     mqtt_client.loop_stop()
     mqtt_client.disconnect()
 
@@ -45,6 +47,11 @@ app = FastAPI(title="SENTINEL-X API", lifespan=lifespan)
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/v1/supervision")
+def get_supervision(session: Session = Depends(get_session)) -> dict:
+    return supervision.etat(session)
 
 
 @app.get("/api/v1/mesures", response_model=list[MeasurementOut])

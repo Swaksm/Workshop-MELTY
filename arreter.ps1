@@ -1,4 +1,4 @@
-$ErrorActionPreference = "Continue"
+﻿$ErrorActionPreference = "Continue"
 $racine = $PSScriptRoot
 
 $processus = Get-CimInstance Win32_Process | Where-Object {

@@ -766,6 +766,68 @@ h2 {
 
 /* ---- responsive ---- */
 
+/* ---- supervision machine ---- */
+.jauge {
+  margin-bottom: 12px;
+}
+
+.jauge-tete {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+
+.jauge-valeur {
+  font-family: var(--font-mono);
+  color: var(--text);
+}
+
+.jauge-barre {
+  height: 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.jauge-remplissage {
+  height: 100%;
+  transition: width 0.4s ease;
+}
+
+.jauge-remplissage.ok { background: var(--ok); }
+.jauge-remplissage.warn { background: var(--cmd); }
+.jauge-remplissage.alert { background: var(--alert); }
+
+.supervision-liste {
+  margin: 14px 0 0;
+}
+
+.supervision-liste > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.supervision-liste dt {
+  color: var(--text-dim);
+}
+
+.supervision-liste dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  text-align: right;
+}
+
+.panel .hint a {
+  color: var(--data);
+}
+
 @media (max-width: 900px) {
   .page {
     padding: 0 16px 40px;

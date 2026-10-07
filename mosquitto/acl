@@ -3,6 +3,8 @@ user backend
 topic read sentinelx/+/sensors
 topic read sentinelx/+/vision
 topic write sentinelx/+/cmd
+# statistiques du broker pour la supervision (MCO)
+topic read $SYS/broker/#
 
 # esp32 : publie ses mesures, reçoit les commandes du buzzer
 user esp32

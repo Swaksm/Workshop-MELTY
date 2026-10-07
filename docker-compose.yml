@@ -68,12 +68,37 @@ services:
         condition: service_started
     volumes:
       - model-data:/code/models
-      - ./media:/code/media:ro
+      - ./media:/code/media              # écriture : purge des vieux clips (rétention)
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
       interval: 15s
       timeout: 5s
       retries: 3
+
+  # Supervision (MCO) : CPU, RAM, réseau et disque de chaque conteneur, interface sur
+  # http://localhost:8080. Montages en lecture seule, interface jamais exposée au Wi-Fi.
+  # Il lit le socket containerd (seul service qui y a accès) : à surveiller dans la
+  # matrice de sécurité, ce socket donne la main sur les conteneurs.
+  cadvisor:
+    <<: *common
+    image: gcr.io/cadvisor/cadvisor:v0.52.1
+    mem_limit: 256m
+    command:
+      - --docker_only=true              # seulement les conteneurs, pas tous les process
+      - --housekeeping_interval=10s     # une mesure toutes les 10 s, assez pour le MCO
+      # Docker Desktop range les conteneurs via containerd (espace "moby") : le mode
+      # docker classique de cAdvisor ne les trouve pas, on les lit donc par containerd
+      - --containerd=/var/run/containerd/containerd.sock
+      - --docker=unix:///var/run/absent.sock   # désactive le mode docker classique
+      - --containerd-namespace=moby
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run/containerd/containerd.sock:/var/run/containerd/containerd.sock:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
 
 volumes:
   pgdata:

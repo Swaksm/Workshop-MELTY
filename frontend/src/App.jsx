@@ -22,6 +22,7 @@ import {
   getEtat,
   getMesures,
   getPresence,
+  getSupervision,
 } from "./api";
 
 const TABLE_ID = "table1";
@@ -29,6 +30,7 @@ const TABLE_LABEL = "Sentinel G9";
 const POLL_MS = 3000;
 const FENETRE_GRAPHIQUE_MS = 60 * 60 * 1000;
 const PERSONNE_RECENTE_MS = 15000;
+const SUPERVISION_MS = 10000;
 
 const formatHeure = (iso) => new Date(iso).toLocaleTimeString("fr-FR");
 const formatTick = (horodatage) => new Date(horodatage).toLocaleTimeString("fr-FR");
@@ -46,6 +48,17 @@ export default function App({ onLogout }) {
   const [cameras, setCameras] = useState({ disponibles: [], active: null });
   const [erreurCamera, setErreurCamera] = useState(null);
   const [presence, setPresence] = useState({ progression: 0, confirmee: false });
+  const [supervision, setSupervision] = useState(null);
+
+  useEffect(() => {
+    const charger = () =>
+      getSupervision()
+        .then(setSupervision)
+        .catch(() => setSupervision(null));
+    charger();
+    const id = setInterval(charger, SUPERVISION_MS);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     getCameras()
@@ -421,7 +434,67 @@ export default function App({ onLogout }) {
             </ul>
           )}
         </div>
+
+        <Supervision data={supervision} />
       </section>
+    </div>
+  );
+}
+
+function Jauge({ label, pourcent, detail }) {
+  const niveau = pourcent >= 90 ? "alert" : pourcent >= 70 ? "warn" : "ok";
+  return (
+    <div className="jauge">
+      <div className="jauge-tete">
+        <span>{label}</span>
+        <span className="jauge-valeur">{detail ?? `${Math.round(pourcent)} %`}</span>
+      </div>
+      <div className="jauge-barre">
+        <div className={`jauge-remplissage ${niveau}`} style={{ width: `${Math.min(pourcent, 100)}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function Supervision({ data }) {
+  if (!data) {
+    return (
+      <div className="panel">
+        <h2>Supervision machine</h2>
+        <Vide texte="Supervision indisponible." />
+      </div>
+    );
+  }
+  const { hote, base, media, mqtt, retention } = data;
+  const lignes = [
+    ["Mesures en base", `${base.mesures.toLocaleString("fr-FR")}${base.taille_mesures_mo != null ? ` · ${base.taille_mesures_mo} Mo` : ""}`],
+    ["Taille de la base", base.taille_base_mo != null ? `${base.taille_base_mo} Mo` : "—"],
+    ["Clips vidéo", `${media.clips} · ${media.taille_mo} / ${media.max_mo} Mo`],
+    ["Clients MQTT", mqtt.clients_connectes ?? "—"],
+    ["Messages MQTT reçus / min", mqtt.messages_recus_par_min ? Math.round(Number(mqtt.messages_recus_par_min)) : "—"],
+    ["Rétention", `mesures ${retention.mesures_jours} j · clips ${retention.clips_jours} j`],
+  ];
+  return (
+    <div className="panel">
+      <h2>Supervision machine</h2>
+      <Jauge label={`CPU (${hote.cpu_coeurs} cœurs)`} pourcent={hote.cpu_pourcent} />
+      <Jauge
+        label="RAM"
+        pourcent={hote.ram_pourcent}
+        detail={`${hote.ram_utilisee_mo} / ${hote.ram_totale_mo} Mo`}
+      />
+      <Jauge label="Disque" pourcent={hote.disque_pourcent} />
+      <dl className="supervision-liste">
+        {lignes.map(([cle, valeur]) => (
+          <div key={cle}>
+            <dt>{cle}</dt>
+            <dd>{valeur}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="hint">
+        Hôte Docker, rafraîchi toutes les 10 s. Détail par conteneur : <a href="http://localhost:8080" target="_blank" rel="noreferrer">cAdvisor</a>.
+      </p>
     </div>
   );
 }

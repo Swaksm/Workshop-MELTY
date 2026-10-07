@@ -17,6 +17,8 @@ export const getAlertes = (tableId) =>
 
 export const getEtat = (tableId) => request(`/tables/${tableId}/etat`);
 
+export const getSupervision = () => request("/supervision");
+
 export async function getCameras() {
   const res = await fetch("/vision/cameras");
   if (!res.ok) throw new Error(`Module vision injoignable (${res.status})`);
