@@ -157,7 +157,7 @@ curl http://localhost:8000/health   # {"status":"ok"}
 | Service | Port hôte | Rôle |
 |---|---|---|
 | `backend` | 8000 | API REST et Swagger, liée à `127.0.0.1` et à `HOTSPOT_IP` (les autres appareils de la table) |
-| `mosquitto` | 1883 | broker MQTT, lié à `127.0.0.1` (vision) et à `HOTSPOT_IP` (ESP32) |
+| `mosquitto` | 1883 et 8883 | broker MQTT : 1883 en clair sur `127.0.0.1` (backend, vision), 8883 en TLS sur `127.0.0.1` et `HOTSPOT_IP` (ESP32) |
 | `db` | non exposé | PostgreSQL, réseau Docker uniquement |
 
 Les conteneurs tournent sous un utilisateur non-root, sans privilèges supplémentaires et avec système de fichiers en lecture seule (sauf les volumes de données). `lancer.ps1` détecte l'adresse du hotspot et la met dans `HOTSPOT_IP` du `.env`.
@@ -194,27 +194,21 @@ docker compose down -v     # supprime aussi la base et les modèles entraînés
 
 ## 5. Réseau de la table
 
-Toute la communication se fait sur un réseau local créé par le PC serveur. Rien ne sort vers internet.
+Le PC serveur et l'ESP32 sont sur le **Wi-Fi du labo** (`WIFI_LABO`), pas sur un hotspot dédié. Les capteurs et la vidéo restent en local ; seul le MQTT de l'ESP32 est chiffré, puisqu'il transite sur le Wi-Fi partagé de l'école.
 
 ### Plan d'adressage
 
 | Équipement | Adresse | Rôle |
 |---|---|---|
-| PC serveur (passerelle du hotspot) | `192.168.52.1` (à vérifier) | héberge Mosquitto (1883) et l'API (8000), crée le hotspot |
-| ESP32 | `192.168.52.50` (IP fixe) | publie les mesures |
-| Autres appareils | DHCP, `192.168.52.x` | consultent l'API depuis le navigateur |
-| Masque | `255.255.255.0` (`/24`) | tous les appareils de la table |
+| PC serveur | DHCP de l'école (ex. `10.0.3.76`) | héberge Mosquitto (1883 local + 8883 TLS) et l'API (8000) |
+| ESP32 | DHCP de l'école | publie les mesures en TLS |
+| Autres appareils | DHCP de l'école | consultent l'API depuis le navigateur |
 
-Le plan ci-dessus est la cible du projet. **Windows peut attribuer une autre adresse au hotspot** (par défaut `192.168.137.1`). L'adresse réelle est celle que `ipconfig` affiche : le firmware doit la reprendre.
+L'adresse du PC **change avec le DHCP de l'école**. `lancer.ps1` la détecte à chaque lancement (interface « Wi-Fi ») et la met dans `HOTSPOT_IP` du `.env`. Si elle change, il faut mettre à jour `MQTT_HOST` dans `firmware/sentinel_temp/secrets.h` et reflasher l'ESP32 (OTA possible si le Wi-Fi est encore joignable).
 
-### Créer le hotspot
+### Se connecter au Wi-Fi du labo
 
-1. Paramètres → Réseau et Internet → **Point d'accès mobile**.
-2. Nom : `Sentinel_G9`, mot de passe : `Sentinel_G9`.
-3. Bande : **2,4 GHz** (l'ESP32 ne supporte pas la 5 GHz).
-4. Active le point d'accès.
-
-Certaines cartes Wi-Fi ne peuvent pas être connectées au Wi-Fi de l'école et diffuser le hotspot en même temps.
+Rien à créer : le PC et l'ESP32 se connectent au Wi-Fi existant de l'école, avec son SSID et son mot de passe. Ces identifiants vont dans `firmware/sentinel_temp/secrets.h` (`WIFI_SSID`, `WIFI_PASSWORD`), jamais dans le dépôt.
 
 ### Vérifier l'adresse du PC
 
@@ -222,26 +216,33 @@ Certaines cartes Wi-Fi ne peuvent pas être connectées au Wi-Fi de l'école et 
 ipconfig
 ```
 
-Cherche la carte « Connexion au réseau local* N » connectée, avec une IPv4 : c'est l'adresse du PC serveur sur le hotspot. Si elle affiche `Média déconnecté`, le hotspot n'est pas actif.
+Cherche la carte **Wi-Fi**, section Adresse IPv4. C'est l'adresse à mettre dans `MQTT_HOST`.
 
-### Adapter le firmware
+### Chiffrement TLS du MQTT
 
-Trois valeurs dans le firmware, à remplacer par le préfixe réel. Exemple avec `192.168.137.1` :
+Le broker écoute sur deux ports :
 
-| Variable | Valeur |
-|---|---|
-| `local_IP` | `192.168.137.50` |
-| `gateway` | `192.168.137.1` |
-| `MQTT_HOST` | `192.168.137.1` |
+| Port | Chiffrement | Qui l'utilise |
+|---|---|---|
+| 1883 | aucun | backend et module vision, uniquement via `mosquitto:1883` (réseau Docker interne) et `127.0.0.1:1883` (boucle locale du PC). Jamais exposé sur le Wi-Fi |
+| 8883 | TLS 1.2 | ESP32, seul client qui traverse le Wi-Fi du labo |
 
-Le masque ne change pas.
+Les certificats sont générés en local, jamais commités :
+
+```bash
+sh mosquitto/gen-certs.sh 10.0.3.76   # adresse du PC, voir ci-dessus
+```
+
+Ça produit `mosquitto/certs/{ca.crt,ca.key,server.crt,server.key}`. Pour le firmware, le certificat de la CA doit être copié dans `firmware/sentinel_temp/ca_cert.h` (voir `ca_cert.h.example` pour le format attendu, un `R"EOF(...)EOF"` avec le contenu de `ca.crt`).
+
+`lancer.ps1` recrée aussi `mosquitto/passwd` à chaque lancement à partir des mots de passe du `.env` (`MQTT_PASSWORD`, `VISION_MQTT_PASSWORD`, `ESP32_MQTT_PASSWORD`), donc pas besoin d'y toucher à la main.
 
 ### Ouvrir les ports (pare-feu Windows)
 
 Une fois, dans un terminal **administrateur** :
 
 ```powershell
-New-NetFirewallRule -DisplayName "SENTINEL-X MQTT" -Direction Inbound -Protocol TCP -LocalPort 1883 -Action Allow -Profile Private
+New-NetFirewallRule -DisplayName "SENTINEL-X MQTT TLS" -Direction Inbound -Protocol TCP -LocalPort 8883 -Action Allow -Profile Private
 New-NetFirewallRule -DisplayName "SENTINEL-X API" -Direction Inbound -Protocol TCP -LocalPort 8000 -Action Allow -Profile Private
 New-NetFirewallRule -DisplayName "SENTINEL-X Vision" -Direction Inbound -Protocol TCP -LocalPort 8001 -Action Allow -Profile Private
 ```
@@ -250,13 +251,13 @@ New-NetFirewallRule -DisplayName "SENTINEL-X Vision" -Direction Inbound -Protoco
 
 | De | Vers | Protocole et port | Usage |
 |---|---|---|---|
-| ESP32 `192.168.52.50` | PC `192.168.52.1:1883` | MQTT (TCP) | publie `sentinelx/table1/sensors` |
-| Backend (conteneur) | `mosquitto:1883` | MQTT (réseau Docker) | reçoit capteurs et vision, envoie les commandes |
+| ESP32 | PC `MQTT_HOST:8883` | MQTT sur TLS | publie `sentinelx/table1/sensors`, authentifié (`esp32`) |
+| Backend (conteneur) | `mosquitto:1883` | MQTT en clair (réseau Docker) | reçoit capteurs et vision, envoie les commandes |
 | Backend (conteneur) | `db:5432` | PostgreSQL (réseau Docker) | enregistre les données |
-| Vision (PC) | `localhost:1883` | MQTT | publie `sentinelx/table1/vision` |
+| Vision (PC) | `localhost:1883` | MQTT en clair (boucle locale) | publie `sentinelx/table1/vision` |
 | Backend (conteneur) | `smtp.gmail.com:587` | SMTP (STARTTLS) | envoie les mails |
 | Navigateur du PC | `localhost:8000`, `localhost:8001` | HTTP | API, Swagger, flux vidéo |
-| Autre appareil | `192.168.52.1:8000` | HTTP | API et Swagger |
+| Autre appareil du Wi-Fi | `HOTSPOT_IP:8000` | HTTP | API et Swagger |
 
 Le backend parle à Mosquitto et à la base par les **noms de service Docker**, pas par l'IP du PC.
 
@@ -264,7 +265,7 @@ Le backend parle à Mosquitto et à la base par les **noms de service Docker**, 
 
 ```powershell
 ipconfig
-Test-NetConnection 192.168.52.1 -Port 1883
+Test-NetConnection 10.0.3.76 -Port 8883
 curl http://localhost:8000/health
 ```
 
@@ -272,13 +273,12 @@ curl http://localhost:8000/health
 
 | Symptôme | Cause probable |
 |---|---|
-| Le hotspot ne démarre pas | la carte Wi-Fi partage déjà la connexion de l'école |
-| L'ESP32 se connecte au Wi-Fi, mais `Connexion MQTT... échec` | mauvaise adresse du PC dans le firmware, ou pare-feu qui bloque 1883 |
+| L'ESP32 se connecte au Wi-Fi, mais `Connexion MQTT... échec` | mauvaise adresse dans `MQTT_HOST` (IP du PC a changé), pare-feu qui bloque 8883, ou identifiants/certificat obsolètes dans `secrets.h`/`ca_cert.h` |
 | Les autres appareils n'atteignent pas l'API | pare-feu qui bloque 8000, ou profil réseau « Public » |
 | `lancer.ps1` échoue avec « Docker ne répond pas » | Docker Desktop bloqué sur un ancien socket (`%LOCALAPPDATA%\Docker\run`). Redémarre Windows : le verrou disparaît. Ne pas réinitialiser Docker en usine, ça efface les volumes |
-un`). Redémarre Windows : le verrou disparaît. Ne pas réinitialiser Docker en usine, ça efface les volumes |
 | Le backend ne peut pas écrire les modèles (`Permission denied` sur `/code/models`) | le volume `model-data` appartient à root. Le corriger sans rien supprimer : `docker run --rm -v workshop_model-data:/m alpine chown -R 10001:10001 /m` |
 | Le module vision ne voit pas une webcam branchée | il ne scanne les caméras qu'au démarrage : relance `lancer.ps1` (ou `arreter.ps1` puis `lancer.ps1`) |
+| Mosquitto refuse de démarrer, erreur sur `cafile` | `mosquitto/certs/` absent : lance `sh mosquitto/gen-certs.sh <IP du PC>` avant `lancer.ps1` |
 
 ## 6. Configuration
 
@@ -352,19 +352,19 @@ Une **table** est un identifiant libre (`table1`). Il doit être identique côt�
 
 | Sens | Topic | Payload | Fréquence |
 |---|---|---|---|
-| ESP32 → backend | `sentinelx/<table>/sensors` | `{"temp":23.4,"hum":51.2,"gas":1234,"pir":0}` | toutes les 5 s |
+| ESP32 → backend | `sentinelx/<table>/sensors` | `{"temp":23.4,"hum":51.2,"gas":1234,"pir":0,"alarm":0}` | toutes les 5 s |
 | vision → backend | `sentinelx/<table>/vision` | `{"label":"person","confidence":0.91,"image":"<base64 JPEG>","clip":"clip_table1_...mp4"}` | une fois par présence confirmée, 5 s après la confirmation |
 | backend → ESP32 | `sentinelx/<table>/cmd` | `{"buzzer":"on"}` ou `{"buzzer":"off"}` | sur événement |
 
-- `temp` : °C, un chiffre après la virgule. `hum` : humidité relative en %. `gas` : valeur ADC brute, entier de 0 à 4095. `pir` : 0 ou 1, facultatif (mouvement du capteur PIR, stocké dans `measurements.pir`).
+- `temp` : °C, un chiffre après la virgule. `hum` : humidité relative en %. `gas` : valeur ADC brute, entier de 0 à 4095. `pir` : 0 ou 1, facultatif (mouvement du capteur PIR, stocké dans `measurements.pir`). `alarm` : alarme gaz locale de l'ESP32 (seuil physique sur la carte, pas lié au modèle d'IA) — champ ignoré par le backend pour l'instant.
 - Le champ `image` est facultatif. Un label autre que `person` est refusé.
-- Le broker de développement accepte les connexions anonymes sur 1883 (voir [limites](#16-limites-connues)).
+- Le broker refuse les connexions anonymes (`mosquitto/acl`). Backend et vision se connectent en clair sur `1883` (réseau Docker / boucle locale uniquement). L'ESP32 se connecte en **TLS sur `8883`**, authentifié (voir [Réseau de la table](#5-réseau-de-la-table)).
 
-Test manuel :
+Test manuel depuis le PC, avec les identifiants `esp32` du `.env` :
 
 ```bash
-mosquitto_sub -h localhost -t "sentinelx/#" -v
-mosquitto_pub -h localhost -t "sentinelx/table1/cmd" -m '{"buzzer":"on"}'
+mosquitto_sub -h <IP du PC> -p 8883 --cafile mosquitto/certs/ca.crt -u esp32 -P <ESP32_MQTT_PASSWORD> -t "sentinelx/#" -v
+mosquitto_pub -h <IP du PC> -p 8883 --cafile mosquitto/certs/ca.crt -u esp32 -P <ESP32_MQTT_PASSWORD> -t "sentinelx/table1/cmd" -m '{"buzzer":"on"}'
 ```
 
 ## 9. Base de données
@@ -695,20 +695,20 @@ Scénario de test :
 - **Vidéo basse qualité** : les clips sont en 320×240, pour rester petits et sous la limite de 20 Mo. Ce n'est pas la qualité du flux affiché sur le dashboard.
 - **Clips non nettoyés** : les fichiers dans `media/` ne sont jamais supprimés automatiquement.
 - **État en mémoire** : alerte active, délai de mail et présence vidéo ne sont pas persistés.
-- **MQTT en clair, sans authentification** : Mosquitto accepte les connexions anonymes sur 1883. Le sujet exige MQTTS et des identifiants.
+- **1883 reste sans TLS** : volontaire (réseau Docker interne et boucle locale uniquement, jamais exposé au Wi-Fi), mais ça veut dire que backend et vision ne se parlent pas en chiffré entre eux — sans conséquence tant qu'ils restent sur la même machine.
 - **API et flux vidéo sans authentification**, et le flux circule en clair sur le réseau.
 - **Pas de migrations** : le schéma est créé par `create_all`. Un changement impose de supprimer le volume `pgdata`.
 - **Pas de purge** des mesures.
 - **Un seul modèle capteurs par table**, sans versionnage.
-- **Firmware incomplet** : le firmware de `firmware/` ne fait que le Wi-Fi en IP fixe et l'OTA. La lecture du DHT22 et la publication MQTT sont dans un autre croquis, non committé.
+- **Firmware non testé sur le matériel réel** : `firmware/sentinel_temp/sentinel_temp.ino` lit les capteurs, publie en MQTT/TLS et pilote le buzzer et les deux écrans OLED, mais n'a pas encore tourné sur un vrai ESP32.
 - **Vision hors CI** : le module ne tourne pas dans la CI, et la règle de classement est la seule partie testée automatiquement.
 - **Frontend** : une seule table codée en dur (`table1`) dans `App.jsx`, affichée sous le nom « Sentinel G9 ». Pas encore de conteneur Docker pour le frontend.
 - **Connexion sans sécurité réelle** : l'écran de connexion (`admin` / `admin`) est vérifié dans le navigateur. Il ne protège ni l'API ni le flux vidéo.
 
 ## 17. Feuille de route
 
-1. Firmware complet : lecture du DHT22 et du MQ-2, publication MQTT, abonnement au buzzer.
-2. TLS sur MQTT, authentification du broker, authentification de l'API.
+1. Tester le firmware sur un vrai ESP32 (Wi-Fi labo, TLS, double OLED).
+2. Authentification de l'API et du flux vidéo.
 3. Migrations Alembic, purge des mesures.
 4. Correction de la fausse alerte après un pic.
 5. Buzzer distinct pour la vidéo et pour les capteurs.
