@@ -1,3 +1,6 @@
+# Nom de projet fixe : mêmes noms d'image et de volumes quel que soit le dossier du dépôt
+name: sentinelx
+
 # Options communes : redémarrage auto, pas d'élévation de privilèges, logs limités (MCO)
 x-common: &common
   restart: unless-stopped
@@ -36,7 +39,7 @@ services:
     ports:
       - "127.0.0.1:1883:1883"            # en clair, uniquement en local (vision, tests)
       - "127.0.0.1:8883:8883"            # TLS, tests locaux
-      - "${HOTSPOT_IP}:8883:8883"        # TLS, ESP32 (réseau de table)
+      - "${SERVER_IP:?lancer lancer.ps1 ou definir SERVER_IP dans .env}:8883:8883"   # TLS, ESP32 (Wi-Fi)
     volumes:
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - ./mosquitto/passwd:/mosquitto/config/passwd:ro
@@ -57,7 +60,7 @@ services:
       - /tmp
     ports:
       - "127.0.0.1:8000:8000"            # dashboard sur le PC
-      - "${HOTSPOT_IP}:8000:8000"        # autres appareils de la table
+      - "${SERVER_IP:?lancer lancer.ps1 ou definir SERVER_IP dans .env}:8000:8000"   # autres appareils du Wi-Fi
     depends_on:
       db:
         condition: service_healthy

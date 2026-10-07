@@ -2,7 +2,8 @@ param(
     [int]$CameraIndex = 0,
     [switch]$SansVision,
     [switch]$SansFront,
-    [switch]$Build
+    [switch]$Build,
+    [string]$ForcerIp           # force l'IP du serveur si la détection automatique se trompe
 )
 
 $ErrorActionPreference = "Stop"
@@ -28,12 +29,24 @@ function Attendre-Docker {
 
 Set-Location $racine
 
-function Get-AdresseHotspot {
-    $adresse = Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias "Wi-Fi" -ErrorAction SilentlyContinue |
-        Where-Object { $_.IPAddress -notlike "169.254.*" } |
-        Select-Object -First 1
-    if ($adresse) { return $adresse.IPAddress }
-    return "127.0.0.1"
+# Adresse de repli quand le Wi-Fi est coupé. Pas 127.0.0.1 : docker-compose.yml
+# publie déjà des ports sur 127.0.0.1, les publier deux fois ferait échouer le lancement.
+$IP_REPLI = "127.0.0.2"
+
+# Adresse du PC sur le Wi-Fi de l'école : la carte Wi-Fi physique connectée qui a
+# une passerelle. Le point d'accès mobile Windows (pas de passerelle) et les cartes
+# virtuelles (Docker, WSL) sont ignorés, quel que soit le nom de la carte.
+function Get-IpServeur {
+    $config = Get-NetIPConfiguration -ErrorAction SilentlyContinue | Where-Object {
+        $_.IPv4DefaultGateway -and
+        $_.NetAdapter.Status -eq "Up" -and
+        $_.NetAdapter.PhysicalMediaType -eq "Native 802.11"
+    } | Select-Object -First 1
+    if ($config) {
+        $ip = $config.IPv4Address | Where-Object { $_.IPAddress -notlike "169.254.*" } | Select-Object -First 1
+        if ($ip) { return $ip.IPAddress }
+    }
+    return $IP_REPLI
 }
 
 function Definir-Variable($nom, $valeur) {
@@ -48,20 +61,24 @@ function Definir-Variable($nom, $valeur) {
     Set-Content -Path $fichier -Value $lignes -Encoding ascii
 }
 
-$hotspot = Get-AdresseHotspot
-Definir-Variable "HOTSPOT_IP" $hotspot
-if ($hotspot -eq "127.0.0.1") {
-    Write-Host "Wi-Fi inactif : l'ESP32 ne pourra pas se connecter. Vérifie la connexion au Wi-Fi puis relance."
-} else {
-    Write-Host "PC détecté sur le Wi-Fi : $hotspot (à mettre dans MQTT_HOST du firmware si elle change)"
-}
-
 function Lire-Env($nom) {
     $fichier = "$racine\.env"
     if (-not (Test-Path $fichier)) { return $null }
     $ligne = Get-Content $fichier | Where-Object { $_ -match "^$nom=" } | Select-Object -First 1
     if ($ligne) { return $ligne.Substring($nom.Length + 1) }
     return $null
+}
+
+$ipPrecedente = Lire-Env "SERVER_IP"
+$ipServeur = if ($ForcerIp) { $ForcerIp } else { Get-IpServeur }
+Definir-Variable "SERVER_IP" $ipServeur
+if ($ipServeur -eq $IP_REPLI) {
+    Write-Host "Wi-Fi inactif : l'ESP32 ne pourra pas se connecter. Vérifie la connexion au Wi-Fi puis relance."
+} else {
+    Write-Host "PC détecté sur le Wi-Fi : $ipServeur"
+    if ($ipPrecedente -and $ipPrecedente -ne $IP_REPLI -and $ipPrecedente -ne $ipServeur) {
+        Write-Host "ATTENTION : l'IP du PC a changé ($ipPrecedente -> $ipServeur). Il faudra reflasher l'ESP32 (MQTT_HOST)."
+    }
 }
 
 function New-Secret {
@@ -85,16 +102,61 @@ function Ecrire-Passwd {
     if ($LASTEXITCODE -ne 0) { throw "Création du fichier mosquitto/passwd échouée." }
 }
 
+# Certificat TLS du broker : (re)généré s'il manque ou s'il ne contient pas l'IP actuelle.
+# La CA est conservée, donc l'ESP32 n'a pas besoin d'un nouveau certificat.
+function Ecrire-Certificats($ip) {
+    $certs = Join-Path $racine "mosquitto\certs"
+    $serveur = Join-Path $certs "server.crt"
+    if (Test-Path $serveur) {
+        $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2 $serveur
+        if ($cert.Subject -eq "CN=$ip" -and $cert.NotAfter -gt (Get-Date).AddDays(7)) { return $false }
+    }
+    Write-Host "Certificat TLS du broker pour $ip..."
+    $dossier = (Join-Path $racine "mosquitto") -replace '\\', '/'
+    & docker run --rm -v "${dossier}:/work" alpine:3.20 sh -c "apk add --no-cache openssl >/dev/null && sed 's/\r$//' /work/gen-certs.sh > /tmp/gen.sh && sh /tmp/gen.sh $ip"
+    if ($LASTEXITCODE -ne 0) { throw "Création des certificats TLS échouée." }
+    return $true
+}
+
+# Fichiers locaux du firmware (non versionnés) : CA à jour et IP du broker à jour.
+function Mettre-A-Jour-Firmware($ip) {
+    $dossier = Join-Path $racine "firmware\sentinel_temp"
+    $ca = (Get-Content (Join-Path $racine "mosquitto\certs\ca.crt") -Raw).Trim()
+    $contenu = "// Genere par lancer.ps1 a partir de mosquitto/certs/ca.crt, ne pas versionner.`nconst char* CA_CERT = R`"EOF(`n$ca`n)EOF`";`n"
+    $fichierCa = Join-Path $dossier "ca_cert.h"
+    $ancien = if (Test-Path $fichierCa) { [System.IO.File]::ReadAllText($fichierCa) } else { "" }
+    if ($ancien -ne $contenu) {
+        [System.IO.File]::WriteAllText($fichierCa, $contenu)
+        Write-Host "firmware\sentinel_temp\ca_cert.h mis à jour : reflasher l'ESP32."
+    }
+
+    $secrets = Join-Path $dossier "secrets.h"
+    if ($ip -ne $IP_REPLI -and (Test-Path $secrets)) {
+        $texte = [System.IO.File]::ReadAllText($secrets)
+        $nouveau = $texte -replace '#define MQTT_HOST "[^"]*"', "#define MQTT_HOST `"$ip`""
+        if ($nouveau -ne $texte) {
+            [System.IO.File]::WriteAllText($secrets, $nouveau)
+            Write-Host "firmware\sentinel_temp\secrets.h : MQTT_HOST = $ip. Reflasher l'ESP32 (OTA possible)."
+        }
+    }
+}
+
 Attendre-Docker
 Ecrire-Passwd
+$certsRegeneres = Ecrire-Certificats $ipServeur
+Mettre-A-Jour-Firmware $ipServeur
 Write-Host "1/3 Stack Docker (base, broker MQTT, backend)..."
-$imageExiste = (docker images -q workshop-backend 2>$null)
+$imageExiste = (docker images -q sentinelx-backend 2>$null)
 if ($Build -or -not $imageExiste) {
     cmd /c "docker compose up -d --build"
 } else {
     cmd /c "docker compose up -d"
 }
 if ($LASTEXITCODE -ne 0) { throw "docker compose up a échoué." }
+if ($certsRegeneres) {
+    # le conteneur ne relit ses certificats qu'au démarrage
+    cmd /c "docker compose restart mosquitto"
+}
 
 if (-not $SansFront) {
     Write-Host "2/3 Dashboard (Vite)..."

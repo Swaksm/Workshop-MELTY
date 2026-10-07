@@ -1,3 +1,5 @@
+// ca_cert.h est genere par lancer.ps1 a partir de mosquitto/certs/ca.crt.
+// Ce modele ne sert que si on le cree a la main.
 const char* CA_CERT = R"EOF(
 -----BEGIN CERTIFICATE-----
 Coller ici le contenu de mosquitto/certs/ca.crt
