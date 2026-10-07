@@ -79,7 +79,7 @@ function Ecrire-Passwd {
     $pwVision = Lire-Env "VISION_MQTT_PASSWORD"
     $pwEsp = Lire-Env "ESP32_MQTT_PASSWORD"
     $dossier = (Join-Path $racine "mosquitto") -replace '\\', '/'
-    & docker run --rm -v "${dossier}:/work" eclipse-mosquitto:2 sh -c "mosquitto_passwd -b -c /work/passwd backend $pwBackend && mosquitto_passwd -b /work/passwd vision $pwVision && mosquitto_passwd -b /work/passwd esp32 $pwEsp && chmod 644 /work/passwd"
+    & docker run --rm -v "${dossier}:/work" eclipse-mosquitto:2 sh -c "rm -f /work/passwd && mosquitto_passwd -b -c /work/passwd backend $pwBackend && mosquitto_passwd -b /work/passwd vision $pwVision && mosquitto_passwd -b /work/passwd esp32 $pwEsp && chmod 644 /work/passwd"
     if ($LASTEXITCODE -ne 0) { throw "Création du fichier mosquitto/passwd échouée." }
 }
 
