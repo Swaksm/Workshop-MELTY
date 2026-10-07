@@ -56,14 +56,29 @@ class Notifier:
         threading.Thread(target=self._envoyer, args=(msg,), daemon=True).start()
 
     def anomalie(
-        self, table_id: str, temp: float, hum: float, gas: int, details: dict | None = None
+        self,
+        table_id: str,
+        temp: float,
+        hum: float,
+        gas: int,
+        details: dict | None = None,
+        graphique: bytes | None = None,
     ) -> bool:
-        return self._publier("anomalie", lambda: mail_anomalie(table_id, temp, hum, gas, details))
+        return self._publier(
+            "anomalie", lambda: mail_anomalie(table_id, temp, hum, gas, details, graphique)
+        )
 
     def hausse(
-        self, table_id: str, temp: float, probabilite: float, details: dict | None = None
+        self,
+        table_id: str,
+        temp: float,
+        probabilite: float,
+        details: dict | None = None,
+        graphique: bytes | None = None,
     ) -> bool:
-        return self._publier("hausse", lambda: mail_hausse(table_id, temp, probabilite, details))
+        return self._publier(
+            "hausse", lambda: mail_hausse(table_id, temp, probabilite, details, graphique)
+        )
 
     def personne(
         self,

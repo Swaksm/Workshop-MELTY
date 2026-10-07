@@ -5,6 +5,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import ml_temp
+from app.detection import _mesures_recentes
+from app.evolution_chart import graphique_evolution
 from app.models import Alert, Measurement
 from app.notifier import notifier
 
@@ -46,7 +48,8 @@ def evaluate_hausse(session: Session, table_id: str, set_buzzer: Callable[[str, 
         )
         session.commit()
         set_buzzer(table_id, "on")
-        notifier.hausse(table_id, last.temp, probabilite, details)
+        graphique = graphique_evolution(_mesures_recentes(session, table_id, last.received_at), last.received_at)
+        notifier.hausse(table_id, last.temp, probabilite, details, graphique)
     elif probabilite < SEUIL_FIN and table_id in _active:
         _active.discard(table_id)
         set_buzzer(table_id, "off")

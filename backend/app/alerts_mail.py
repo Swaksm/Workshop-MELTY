@@ -38,6 +38,17 @@ def _phrase_causale(details: dict | None) -> str:
     )
 
 
+def _bloc_graphique(graphique: bytes | None) -> str:
+    if graphique is None:
+        return ""
+    return (
+        f'<div style="font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:{MUTED};margin:4px 0 8px;">'
+        "Évolution des 15 minutes avant l'alerte</div>"
+        '<img src="cid:graphique" alt="Température et gaz avant l\'alerte" width="508" '
+        f'style="display:block;width:100%;max-width:508px;height:auto;border:1px solid {LINE};margin-bottom:12px;">'
+    )
+
+
 def _tableau_caracteristiques(details: dict | None) -> str:
     if not details or not details.get("caracteristiques"):
         return ""
@@ -103,7 +114,12 @@ def _enveloppe(titre: str, sous_titre: str, corps: str, pied_photo: str = "") ->
 
 
 def mail_anomalie(
-    table_id: str, temp: float, hum: float, gas: int, details: dict | None = None
+    table_id: str,
+    temp: float,
+    hum: float,
+    gas: int,
+    details: dict | None = None,
+    graphique: bytes | None = None,
 ) -> EmailMessage:
     moment = _maintenant()
     corps = f"""
@@ -114,6 +130,7 @@ def mail_anomalie(
       <tr>{_tuile("Température", f"{temp:.1f} °C")}{_tuile("Humidité", f"{hum:.1f} %")}{_tuile("Gaz (ADC)", str(gas))}</tr>
     </table>
     {_phrase_causale(details)}
+    {_bloc_graphique(graphique)}
     {_tableau_caracteristiques(details)}
     <div style="font-size:13px;color:{MUTED};margin-top:16px;line-height:1.5;">
       L'alarme sonore de la table est activée. Elle se coupe automatiquement quand les mesures redeviennent normales.
@@ -133,11 +150,20 @@ def mail_anomalie(
         f"{lignes_texte}\n"
         "L'alarme sonore est activée. Elle se coupe quand les mesures redeviennent normales.\n"
     )
-    return _composer(f"[SENTINEL-X] Anomalie capteurs · table {table_id}", texte, html)
+    msg = _composer(f"[SENTINEL-X] Anomalie capteurs · table {table_id}", texte, html)
+    if graphique is not None:
+        msg.get_body(preferencelist=("html",)).add_related(
+            graphique, maintype="image", subtype="png", cid="<graphique>"
+        )
+    return msg
 
 
 def mail_hausse(
-    table_id: str, temp: float, probabilite: float, details: dict | None = None
+    table_id: str,
+    temp: float,
+    probabilite: float,
+    details: dict | None = None,
+    graphique: bytes | None = None,
 ) -> EmailMessage:
     moment = _maintenant()
     pourcentage = round(probabilite * 100)
@@ -152,6 +178,7 @@ def mail_hausse(
     <div style="background:{LINE};height:8px;width:100%;">
       <div style="background:#f5b041;height:8px;width:{max(1, min(100, pourcentage))}%;"></div>
     </div>
+    {_bloc_graphique(graphique)}
     {_tableau_caracteristiques(details)}
     <div style="font-size:13px;color:{MUTED};margin-top:16px;line-height:1.5;">
       Ce n'est pas un seuil : le modèle a reconnu une tendance à la hausse sur les dernières minutes.
@@ -170,7 +197,12 @@ def mail_hausse(
         f"{lignes_texte}\n"
         "Le modèle a reconnu une tendance à la hausse sur les dernières minutes.\n"
     )
-    return _composer(f"[SENTINEL-X] Hausse de température · table {table_id}", texte, html)
+    msg = _composer(f"[SENTINEL-X] Hausse de température · table {table_id}", texte, html)
+    if graphique is not None:
+        msg.get_body(preferencelist=("html",)).add_related(
+            graphique, maintype="image", subtype="png", cid="<graphique>"
+        )
+    return msg
 
 
 LIMITE_PIECES_JOINTES = 20 * 1024 * 1024
