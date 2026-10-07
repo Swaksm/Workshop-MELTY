@@ -414,7 +414,7 @@ export default function App({ onLogout }) {
                     <div className="alert-meta">
                       {formatDate(a.created_at)} · {a.temp.toFixed(1)} °C · {a.hum.toFixed(1)} % · gaz {a.gas}
                     </div>
-                    <Explication details={a.details} />
+                    <Explication details={a.details} alerte={a} mesures={mesures} />
                   </div>
                 </li>
               ))}
@@ -438,8 +438,33 @@ function Tuile({ label, valeur, unite }) {
   );
 }
 
-function Explication({ details }) {
+const FENETRE_AVANT_MS = 10 * 60 * 1000;
+const FENETRE_APRES_MS = 2 * 60 * 1000;
+
+function phraseCausale(details) {
+  if (!details?.caracteristiques?.length) return null;
+  const pires = [...details.caracteristiques]
+    .filter((c) => c.ecart !== undefined)
+    .sort((a, b) => Math.abs(b.ecart) - Math.abs(a.ecart));
+  if (pires.length === 0) return null;
+  const pire = pires[0];
+  const sens = pire.ecart > 0 ? "au-dessus" : "en dessous";
+  return (
+    <>
+      Surtout causée par <b>{pire.nom}</b> : {pire.valeur} contre {pire.normal} habituellement, soit{" "}
+      {Math.abs(pire.ecart)} σ {sens} de la normale.
+    </>
+  );
+}
+
+function Explication({ details, alerte, mesures }) {
   const [ouvert, setOuvert] = useState(false);
+  const momentAlerte = new Date(alerte.created_at).getTime();
+  const fenetre = [...mesures]
+    .map((m) => ({ t: new Date(m.received_at).getTime(), temp: m.temp, hum: m.hum, gaz: m.gas }))
+    .filter((m) => m.t >= momentAlerte - FENETRE_AVANT_MS && m.t <= momentAlerte + FENETRE_APRES_MS)
+    .sort((a, b) => a.t - b.t);
+
   return (
     <div className="explication">
       <button type="button" className="btn small" onClick={() => setOuvert((o) => !o)} aria-expanded={ouvert}>
@@ -457,6 +482,7 @@ function Explication({ details }) {
           {details.facteur_lof !== undefined && <> · facteur LOF {details.facteur_lof} (normal ≈ 1)</>}
           {details.probabilite !== undefined && <> · probabilité de hausse {Math.round(details.probabilite * 100)} %</>}
         </div>
+        <p className="explication-phrase">{phraseCausale(details)}</p>
         <table>
           <thead>
             <tr>
@@ -478,6 +504,34 @@ function Explication({ details }) {
           </tbody>
         </table>
         <p className="explication-note">Écart en nombre d'écarts-types par rapport à la baseline apprise. Au-delà de 3 σ, la valeur est surlignée.</p>
+
+        <div className="explication-evolution">
+          <div className="explication-label">Évolution autour de l'alerte (10 min avant, 2 min après)</div>
+          {fenetre.length < 2 ? (
+            <p className="explication-note">
+              Pas assez de mesures encore en mémoire côté dashboard pour tracer cette fenêtre.
+            </p>
+          ) : (
+            <div className="sparkline">
+              <ResponsiveContainer width="100%" height={90}>
+                <LineChart data={fenetre}>
+                  <XAxis dataKey="t" type="number" domain={["dataMin", "dataMax"]} hide />
+                  <YAxis yAxisId="t" hide domain={["auto", "auto"]} />
+                  <YAxis yAxisId="g" orientation="right" hide domain={["auto", "auto"]} />
+                  <Tooltip contentStyle={tooltipStyle} labelFormatter={formatHeure} />
+                  <ReferenceLine x={momentAlerte} yAxisId="t" stroke="#ff6b6b" strokeDasharray="3 3" />
+                  <Line yAxisId="t" type="monotone" dataKey="temp" stroke="#5fd9f0" dot={false} strokeWidth={1.5} name="Température" />
+                  <Line yAxisId="g" type="monotone" dataKey="gaz" stroke="#ff6f6f" dot={false} strokeWidth={1.5} name="Gaz" />
+                </LineChart>
+              </ResponsiveContainer>
+              <div className="chart-legend">
+                <span><i style={{ background: "#5fd9f0" }} /> Température</span>
+                <span><i style={{ background: "#ff6f6f" }} /> Gaz</span>
+                <span><i style={{ background: "#ff6b6b" }} /> Moment de l'alerte</span>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
       )}
     </div>
