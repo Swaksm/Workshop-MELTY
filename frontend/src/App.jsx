@@ -15,6 +15,7 @@ import {
 import {
   choisirCamera,
   commander,
+  commanderLed,
   entrainer,
   getAlertes,
   getCameras,
@@ -141,6 +142,16 @@ export default function App({ onLogout }) {
     try {
       await commander(TABLE_ID, state);
       setMessage(state === "on" ? "Buzzer activé." : "Buzzer coupé.");
+    } catch (err) {
+      setMessage(err.message);
+    }
+  }
+
+  async function onLed(state) {
+    setMessage(null);
+    try {
+      await commanderLed(TABLE_ID, state);
+      setMessage(state === "on" ? "LED activée." : "LED coupée.");
     } catch (err) {
       setMessage(err.message);
     }
@@ -400,6 +411,12 @@ export default function App({ onLogout }) {
             </button>
             <button type="button" className="btn" onClick={() => onBuzzer("off")}>
               Couper le buzzer
+            </button>
+            <button type="button" className="btn cmd" onClick={() => onLed("on")}>
+              Activer la LED
+            </button>
+            <button type="button" className="btn" onClick={() => onLed("off")}>
+              Couper la LED
             </button>
             <button type="button" className="btn" onClick={onEntrainer}>
               Entraîner le modèle

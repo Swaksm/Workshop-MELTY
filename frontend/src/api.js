@@ -56,3 +56,10 @@ export const commander = (tableId, buzzer) =>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ buzzer }),
   });
+
+export const commanderLed = (tableId, led) =>
+  request(`/tables/${tableId}/commande`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ led }),
+  });

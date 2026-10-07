@@ -15,6 +15,7 @@
 #define PIR_PIN    27
 #define MQ2_PIN    34
 #define BUZZER_PIN 26
+#define LED_PIN    25
 
 // OLED principal SSD1306 en I2C
 #define OLED_SDA      21
@@ -87,6 +88,7 @@ const unsigned long BEEP_INTERVAL = 250;
 
 bool gasAlarm = false;
 bool buzzerManual = false;
+bool ledManual = false;
 bool beepState = false;
 
 unsigned long lastBeep = 0;
@@ -124,10 +126,16 @@ void onCommand(char* topic, byte* payload, unsigned int length) {
 
   // Le buzzer est géré par handleBuzzer().
   // L'alarme gaz reste prioritaire.
-  if (msg.indexOf("\"on\"") >= 0) {
+  if (msg.indexOf("\"buzzer\":\"on\"") >= 0) {
     buzzerManual = true;
-  } else if (msg.indexOf("\"off\"") >= 0) {
+  } else if (msg.indexOf("\"buzzer\":\"off\"") >= 0) {
     buzzerManual = false;
+  }
+
+  if (msg.indexOf("\"led\":\"on\"") >= 0) {
+    ledManual = true;
+  } else if (msg.indexOf("\"led\":\"off\"") >= 0) {
+    ledManual = false;
   }
 
   Serial.println("Commande reçue : " + msg);
@@ -351,6 +359,10 @@ void handleBuzzer() {
       buzzerManual ? HIGH : LOW
     );
   }
+}
+
+void handleLed() {
+  digitalWrite(LED_PIN, ledManual ? HIGH : LOW);
 }
 
 // ================= Écran OLED principal =================
@@ -788,8 +800,10 @@ void setup() {
   pinMode(PIR_PIN, INPUT);
   pinMode(MQ2_PIN, INPUT);
   pinMode(BUZZER_PIN, OUTPUT);
+  pinMode(LED_PIN, OUTPUT);
 
   digitalWrite(BUZZER_PIN, LOW);
+  digitalWrite(LED_PIN, LOW);
 
   dht.begin();
 
@@ -915,6 +929,7 @@ void loop() {
   }
 
   handleBuzzer();
+  handleLed();
 
   // Premier OLED
   handleDisplay();

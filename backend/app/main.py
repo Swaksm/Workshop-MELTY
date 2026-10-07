@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app import detection, ml, models, retention, supervision
 from app.db import Base, SessionLocal, engine
-from app.mqtt import send_buzzer, start_mqtt
+from app.mqtt import send_buzzer, send_led, start_mqtt
 from app.schemas import (
     AlertOut,
     CommandeIn,
@@ -134,5 +134,10 @@ def entrainement(table_id: str, session: Session = Depends(get_session)):
 
 @app.post("/api/v1/tables/{table_id}/commande", status_code=202)
 def commande(table_id: str, body: CommandeIn) -> dict[str, str]:
-    send_buzzer(table_id, body.buzzer)
-    return {"buzzer": body.buzzer}
+    if body.buzzer is None and body.led is None:
+        raise HTTPException(status_code=422, detail="Indique buzzer, led, ou les deux.")
+    if body.buzzer is not None:
+        send_buzzer(table_id, body.buzzer)
+    if body.led is not None:
+        send_led(table_id, body.led)
+    return body.model_dump(exclude_none=True)

@@ -25,6 +25,10 @@ def send_buzzer(table_id: str, state: str) -> None:
     _client.publish(f"sentinelx/{table_id}/cmd", json.dumps({"buzzer": state}))
 
 
+def send_led(table_id: str, state: str) -> None:
+    _client.publish(f"sentinelx/{table_id}/cmd", json.dumps({"led": state}))
+
+
 def on_connect(client, userdata, flags, reason_code, properties):
     if reason_code == 0:
         client.subscribe(SENSORS_TOPIC)
