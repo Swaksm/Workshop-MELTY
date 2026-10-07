@@ -28,11 +28,11 @@ function Attendre-Docker {
 
 Set-Location $racine
 
+$IP_TABLE = "192.168.52.1"
+
 function Get-AdresseHotspot {
-    $adresse = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-        Where-Object { $_.InterfaceAlias -like "*local**" -and $_.IPAddress -notlike "169.254.*" } |
-        Select-Object -First 1
-    if ($adresse) { return $adresse.IPAddress }
+    $adresse = Get-NetIPAddress -AddressFamily IPv4 -IPAddress $IP_TABLE -ErrorAction SilentlyContinue
+    if ($adresse) { return $IP_TABLE }
     return "127.0.0.1"
 }
 

@@ -12,3 +12,6 @@ media/
 logs/
 mosquitto/passwd
 firmware/sentinel_temp/secrets.h
+*.key
+*.crt
+message.txt
