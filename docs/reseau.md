@@ -139,7 +139,7 @@ dans le certificat. Comme l'adresse change, `lancer.ps1` automatise tout à chaq
 | Service | Port | Écoute sur | Joignable depuis le Wi-Fi ? | Chiffré | Authentifié |
 |---|---|---|---|---|---|
 | Mosquitto TLS | 8883 | `SERVER_IP`, `127.0.0.1` | **oui** (ESP32) | TLS 1.2+ | compte + ACL |
-| Proxy HTTPS (Caddy) | 443 | `SERVER_IP`, `127.0.0.1` | **oui** (dashboard, API, vidéo) | TLS 1.2 / 1.3 | connexion, jeton JWT |
+| Proxy HTTPS (Caddy) | 443 | `SERVER_IP`, `127.0.0.1` | **oui**, pour les 5 postes autorisés (dashboard, API, vidéo) | TLS 1.2 / 1.3 | certificat client du poste, puis connexion et jeton JWT |
 | API REST directe | 8000 | `127.0.0.1` | non | non (local) | jeton JWT |
 | Mosquitto clair | 1883 | `127.0.0.1` | non | non (local) | compte + ACL |
 | Module vision | 8001 | `127.0.0.1` | non (via le proxy, session vérifiée) | non (local) | via le proxy |
@@ -155,7 +155,7 @@ dans le certificat. Comme l'adresse change, `lancer.ps1` automatise tout à chaq
 | F2 | Module vision (PC) | `127.0.0.1:1883` | MQTT | non (ne quitte pas le PC) | compte `vision`, ACL (écrit `vision`) | détections de personnes |
 | F3 | Backend (conteneur) | `mosquitto:1883` | MQTT | non (réseau Docker interne) | compte `backend`, ACL | lit capteurs, vision et statistiques `$SYS`, envoie les commandes |
 | F4 | Backend | `db:5432` | PostgreSQL | non (réseau Docker interne) | mot de passe | enregistrement des données |
-| F5 | Navigateur (PC ou poste de l'équipe) | `SERVER_IP:443` | HTTPS | TLS 1.2 / 1.3 | connexion, jeton JWT (cookie) | dashboard, API, flux vidéo |
+| F5 | Navigateur d'un poste autorisé | `SERVER_IP:443` | HTTPS, TLS mutuel | TLS 1.2 / 1.3 | certificat client `posteN`, puis connexion et jeton JWT (cookie) | dashboard, API, flux vidéo |
 | F5b | Proxy Caddy (conteneur) | `backend:8000`, `host.docker.internal:8001` | HTTP | non (interne au PC) | jeton relayé, session vérifiée pour la vidéo | relais vers l'API et la vision |
 | F6 | Backend | `smtp.gmail.com:587` | SMTP | STARTTLS | mot de passe d'application | mails d'alerte |
 | F7 | Navigateur du PC | `127.0.0.1:8080` | HTTP | non (local) | — | supervision cAdvisor |
@@ -174,6 +174,7 @@ protection successives (défense en profondeur) :
 |---|---|---|
 | Exposition minimale | Seuls 8883 et 443 sont publiés sur l'adresse Wi-Fi. MQTT en clair, API directe, vision, base et supervision restent sur la boucle locale ou le réseau Docker interne | un attaquant ne trouve presque aucune porte ouverte (vérifiable avec `nmap`) |
 | Chiffrement | MQTT de l'ESP32 en TLS, dashboard/API/vidéo en HTTPS, certificats signés par notre CA et contenant l'IP du PC | lecture des mesures sur le Wi-Fi (Wireshark), modification des trames, faux serveur (homme du milieu) |
+| Postes autorisés | HTTPS en TLS mutuel : seuls les 5 postes de l'équipe, munis de leur certificat client, peuvent ouvrir `https://<IP>` | un autre groupe sur le même Wi-Fi n'obtient même pas la page de connexion |
 | Authentification | MQTT : `allow_anonymous false`, un compte par composant. API et vidéo : connexion et jeton JWT. Mots de passe aléatoires générés par `lancer.ps1` | connexion d'un client inconnu au broker, commande du buzzer ou lecture des données par un autre groupe |
 | Contrôle d'accès (ACL) | chaque compte ne lit ou n'écrit que ses topics | un compte volé ne donne pas accès à tout (ex. `esp32` ne peut pas lire la vision) |
 | Conteneurs durcis | utilisateur non-root, `cap_drop: ALL`, système de fichiers en lecture seule, limites mémoire | un service compromis ne prend pas la main sur la machine |

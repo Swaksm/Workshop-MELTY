@@ -3,17 +3,31 @@
 #   /vision/*  -> module vision sur le PC, seulement si le jeton est valide
 #   le reste   -> dashboard React compilé
 # Certificat : le même que le broker MQTT, signé par la CA du projet.
+# Accès réservé aux postes autorisés : chaque navigateur doit présenter un certificat
+# client listé dans clients/autorises.pem (TLS mutuel). Sans lui, la connexion est
+# coupée avant même d'afficher la page de connexion.
 {
 	admin off
 	auto_https off
 	servers {
 		protocols h1 h2
+		# Caddy exige par défaut que le nom TLS (SNI) corresponde à l'en-tête Host quand
+		# un certificat client est demandé. On se connecte par adresse IP, et TLS
+		# n'envoie pas de nom pour une IP : contrôle inutile ici (un seul site, qui
+		# exige le certificat client partout).
+		strict_sni_host insecure_off
 	}
 }
 
 :8443 {
 	tls /certs/server.crt /certs/server.key {
 		protocols tls1.2 tls1.3
+		client_auth {
+			mode require_and_verify
+			trust_pool file /certs/ca.crt
+			# seuls les postes listés passent, même si un autre certificat est signé par la CA
+			trusted_leaf_cert_file /certs/clients/autorises.pem
+		}
 	}
 
 	header {

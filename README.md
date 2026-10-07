@@ -53,7 +53,7 @@ Webcam USB (PC)          │        ▲ MQTT 1883     │ SMTP (Gmail)          
 - Les **capteurs** passent par MQTT, puis le backend les enregistre et évalue le modèle d'IA.
 - La **vidéo** passe par le module vision, qui tourne sur le PC et non dans Docker : un conteneur Windows n'accède pas à la webcam USB.
 - Les **alertes** déclenchent le buzzer et, au plus une fois toutes les 5 minutes, un mail.
-- Depuis le Wi-Fi, seuls deux ports sont joignables, tous deux chiffrés : MQTT/TLS (8883) pour l'ESP32 et HTTPS (443) pour le dashboard, l'API et la vidéo. L'API et la vidéo exigent une connexion. Réseau : [docs/reseau.md](docs/reseau.md). Sécurité (matrice menace → mesure → preuve) : [docs/securite.md](docs/securite.md).
+- Depuis le Wi-Fi, seuls deux ports sont joignables, tous deux chiffrés : MQTT/TLS (8883) pour l'ESP32 et HTTPS (443) pour le dashboard, l'API et la vidéo. Le HTTPS n'est accessible qu'aux 5 postes autorisés (certificat client), puis exige une connexion. Réseau : [docs/reseau.md](docs/reseau.md). Sécurité (matrice menace → mesure → preuve) : [docs/securite.md](docs/securite.md).
 
 ## 2. Stack
 
@@ -147,9 +147,25 @@ Options : `-CameraIndex 1` pour une autre webcam, `-SansVision` ou `-SansFront` 
 
 Ensuite :
 
-- dashboard : **https://localhost** sur le PC, **https://&lt;IP du PC&gt;** depuis un autre poste du Wi-Fi. Identifiant `admin`, mot de passe `ADMIN_PASSWORD` du fichier `.env` (généré au premier lancement) ;
-- pour éviter l'avertissement du navigateur (`NET::ERR_CERT_AUTHORITY_INVALID`), importer la CA du PC qui fait tourner la stack, une fois par poste : `Import-Certificate -FilePath .\mosquitto\certs\ca.crt -CertStoreLocation Cert:\CurrentUser\Root`, puis rouvrir le navigateur. Sur un autre poste, copier uniquement `ca.crt`, **jamais `ca.key`** ;
-- dashboard de développement (rechargement à chaud) : http://localhost:5173.
+- dashboard : **https://&lt;IP du PC&gt;** (ou https://localhost sur le PC serveur), **réservé aux postes autorisés** : chaque poste doit avoir importé son certificat (voir ci-dessous). Identifiant `admin`, mot de passe `ADMIN_PASSWORD` du fichier `.env` (généré au premier lancement) ;
+- dashboard de développement (rechargement à chaud) : http://localhost:5173, sur le PC serveur uniquement.
+
+### Autoriser un poste à ouvrir le dashboard
+
+Au premier lancement, `lancer.ps1` crée 5 certificats de poste (`NB_CLIENTS` dans le `.env`) dans `mosquitto\certs\clients\` : `poste1.p12` à `poste5.p12`, chacun avec son mot de passe dans `posteN.mot-de-passe.txt`. Le proxy HTTPS n'accepte que ces postes : sans certificat, le navigateur affiche `ERR_BAD_SSL_CLIENT_AUTH_CERT`, même pas la page de connexion.
+
+Pour chaque personne autorisée :
+
+1. lui remettre **son** `posteN.p12` et `ca.crt` (clé USB), et le mot de passe séparément. **Jamais `ca.key`** ;
+2. sur son PC, dans PowerShell, dans le dossier des fichiers :
+   ```powershell
+   Import-PfxCertificate -FilePath .\posteN.p12 -CertStoreLocation Cert:\CurrentUser\My -Password (Read-Host -AsSecureString "Mot de passe")
+   Import-Certificate -FilePath .\ca.crt -CertStoreLocation Cert:\CurrentUser\Root
+   ```
+   (ou double-clic sur le `.p12` : « Utilisateur actuel », mot de passe, magasin automatique) ;
+3. fermer et rouvrir le navigateur, ouvrir `https://<IP du PC>` et choisir le certificat « Sentinel-X posteN » quand le navigateur le propose.
+
+Une fois distribués, `posteN.p12`, `posteN.key` et `posteN.mot-de-passe.txt` peuvent être supprimés du serveur : seul `posteN.crt` doit y rester. **Révoquer un poste** : supprimer `posteN.crt` puis relancer `lancer.ps1` ; un nouveau certificat est créé et l'ancien est refusé. Les certificats des postes ne changent pas quand l'IP du PC change.
 
 À chaque lancement, le script reconstruit les images si le code a changé (après un `git pull`, le backend est donc toujours à jour), détecte l'adresse du PC sur le Wi-Fi, (re)génère le certificat TLS (broker et proxy HTTPS) si elle a changé et redémarre les services concernés, et met à jour `MQTT_HOST` et `ca_cert.h` pour le firmware (voir [Réseau de la table](#5-réseau-de-la-table)).
 
@@ -180,7 +196,7 @@ curl http://localhost:8000/health   # {"status":"ok"}
 
 | Service | Port hôte | Rôle |
 |---|---|---|
-| `proxy` | 443 | Caddy : HTTPS, dashboard compilé, `/api` et `/vision`, sur `127.0.0.1` et `SERVER_IP` |
+| `proxy` | 443 | Caddy : HTTPS avec certificat client exigé (postes autorisés), dashboard compilé, `/api` et `/vision`, sur `127.0.0.1` et `SERVER_IP` |
 | `backend` | 8000 | API REST et Swagger, sur `127.0.0.1` uniquement (depuis le Wi-Fi : `https://<IP>/api`) |
 | `mosquitto` | 1883 et 8883 | broker MQTT : 1883 en clair sur `127.0.0.1` (backend, vision), 8883 en TLS sur `127.0.0.1` et `SERVER_IP` (ESP32) |
 | `db` | non exposé | PostgreSQL, réseau Docker uniquement |
@@ -297,7 +313,9 @@ curl http://localhost:8000/health
 | `lancer.ps1` annonce `Wi-Fi inactif` | pas de carte Wi-Fi connectée avec une passerelle : se connecter au Wi-Fi, ou forcer avec `-ForcerIp` |
 | `docker compose up` : `SERVER_IP` manquante | lancement manuel sans `SERVER_IP` dans le `.env` : lancer `lancer.ps1` ou renseigner la variable |
 | Les autres postes n'atteignent pas le dashboard | pare-feu qui bloque 443 (voir « Ouvrir les ports »), ou mauvaise adresse : utiliser `https://<IP du PC>` |
-| Avertissement `NET::ERR_CERT_AUTHORITY_INVALID` dans le navigateur | la CA n'est pas importée sur ce poste : `Import-Certificate` (voir « Lancement rapide ») avec le `ca.crt` du PC qui fait tourner la stack |
+| `ERR_BAD_SSL_CLIENT_AUTH_CERT` dans le navigateur | ce poste n'a pas de certificat autorisé, ou il a été révoqué : importer son `posteN.p12` (voir « Autoriser un poste »), puis rouvrir le navigateur |
+| Le navigateur ne propose aucun certificat | le `.p12` n'est pas dans le magasin « Personnel » de l'utilisateur Windows, ou le navigateur n'a pas été redémarré (Firefox a son propre magasin : Paramètres, Certificats, Vos certificats, Importer) |
+| Avertissement `NET::ERR_CERT_AUTHORITY_INVALID` dans le navigateur | la CA n'est pas importée sur ce poste : `Import-Certificate` (voir « Autoriser un poste ») avec le `ca.crt` du PC qui fait tourner la stack |
 | Avertissement `NET::ERR_CERT_COMMON_NAME_INVALID` | certificat d'une ancienne IP encore en mémoire : relancer `lancer.ps1`, ou `docker compose restart proxy mosquitto` |
 | « Not Found » en se connectant au dashboard | backend resté à une ancienne version (image construite avant un `git pull`) : relancer `lancer.ps1`, qui reconstruit maintenant toujours les images |
 | Le dashboard revient à l'écran de connexion | le jeton a expiré (8 h) ou le backend a été recréé avec un autre `JWT_SECRET` : se reconnecter |
@@ -330,6 +348,7 @@ Fichier `.env` à la racine, créé à partir de `.env.example`. Il n'est pas ve
 | `ADMIN_PASSWORD` | (généré) | `backend` | mot de passe de connexion, 24 caractères aléatoires générés par `lancer.ps1`. Vide : personne ne peut se connecter |
 | `JWT_SECRET` | (généré) | `backend` | clé de signature des jetons. La changer déconnecte tout le monde |
 | `JWT_DUREE_HEURES` | `8` | `backend` | durée de validité d'une session |
+| `NB_CLIENTS` | `5` | `lancer.ps1` | nombre de postes autorisés à ouvrir le dashboard (un certificat client par poste) |
 
 Si `GMAIL_USER`, `GMAIL_APP_PASSWORD` ou `ALERT_TO` manque, les mails sont désactivés sans erreur : les alertes restent dans la base, le buzzer fonctionne toujours.
 
@@ -781,7 +800,7 @@ La purge tourne au démarrage du backend puis toutes les heures. Les durées se 
 - **État en mémoire** : alerte active, délai de mail et présence vidéo ne sont pas persistés.
 - **1883 reste sans TLS** : volontaire (réseau Docker interne et boucle locale uniquement, jamais exposé au Wi-Fi), mais ça veut dire que backend et vision ne se parlent pas en chiffré entre eux — sans conséquence tant qu'ils restent sur la même machine.
 - **Un seul compte** (`admin`) partagé par l'équipe, sans rôles. Derrière Docker Desktop, tous les clients arrivent avec la même adresse : la limite d'échecs de connexion est commune à tous (fenêtre d'une minute).
-- **CA privée** : chaque poste doit importer `ca.crt` pour que le navigateur fasse confiance au dashboard.
+- **CA privée et certificats de poste** : chaque poste autorisé doit importer `ca.crt` et son `posteN.p12`. Pas de liste de révocation : on révoque un poste en supprimant son certificat sur le serveur puis en relançant.
 - **Pas de migrations** : le schéma est créé par `create_all`. Un changement impose de supprimer le volume `pgdata`.
 - **Un seul modèle capteurs par table**, sans versionnage.
 - **Réseau partagé avec les autres groupes** : le Wi-Fi de l'école n'isole pas la table. TLS, authentification et ACL protègent les données, mais pas contre un déni de service. L'adresse du PC change avec le DHCP, ce qui impose de reflasher l'ESP32 (voir [docs/reseau.md](docs/reseau.md)).

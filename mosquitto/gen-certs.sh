@@ -1,18 +1,23 @@
 #!/bin/sh
-# Génère les certificats TLS du broker dans mosquitto/certs/
+# Génère les certificats TLS dans mosquitto/certs/, uniquement ceux qui manquent.
 # Usage : sh mosquitto/gen-certs.sh IP_DU_SERVEUR
-#         (CERTS_DIR=/chemin pour choisir le dossier, défaut : mosquitto/certs à côté du script)
+#   CERTS_DIR=/chemin  dossier des certificats (défaut : mosquitto/certs à côté du script)
+#   NB_CLIENTS=5       nombre de postes autorisés à ouvrir le dashboard (défaut : 5)
 #
-# - La CA (ca.crt / ca.key) n'est créée qu'une seule fois : c'est elle que
-#   l'ESP32 connaît (firmware/sentinel_temp/ca_cert.h). Tant qu'on la garde,
-#   pas besoin de reflasher le certificat dans l'ESP32.
-# - Le certificat du broker (server.crt) est resigné à chaque appel avec l'IP
-#   donnée, dans le CN et le SAN : l'ESP32 vérifie que l'IP qu'il contacte est
-#   bien celle écrite dans le certificat.
+# - CA (ca.crt / ca.key) : créée une seule fois. L'ESP32 et les navigateurs la
+#   connaissent : tant qu'on la garde, rien à redistribuer.
+# - Certificat du serveur (server.crt) : IP dans le CN et le SAN. Refait s'il manque,
+#   si l'IP a changé ou s'il expire dans moins de 7 jours.
+# - Certificats clients (clients/posteN) : un par poste autorisé à ouvrir le dashboard
+#   en HTTPS. Créés si posteN.crt manque, jamais écrasés. Le proxy n'accepte que les
+#   certificats listés dans clients/autorises.pem. Après distribution, posteN.p12,
+#   posteN.key et le mot de passe peuvent être supprimés du serveur ; supprimer
+#   posteN.crt révoque le poste (un nouveau certificat est créé au lancement suivant).
 set -eu
 IP="${1:?Usage : gen-certs.sh IP_DU_SERVEUR}"
+NB_CLIENTS="${NB_CLIENTS:-5}"
 DIR="${CERTS_DIR:-$(cd "$(dirname "$0")" && pwd)/certs}"
-mkdir -p "$DIR"
+mkdir -p "$DIR/clients"
 cd "$DIR"
 
 # 1. Autorité de certification du projet (une seule fois, valable 2 ans)
@@ -22,16 +27,53 @@ if [ ! -f ca.key ] || [ ! -f ca.crt ]; then
   echo "Nouvelle CA créée : ca.crt doit être recopié dans le firmware de l'ESP32."
 fi
 
-# 2. Clé et demande de certificat du broker
-openssl req -new -nodes -newkey rsa:2048 -sha256 \
-  -keyout server.key -out server.csr -subj "/CN=$IP"
+# 2. Certificat du serveur, valable pour l'IP du PC et le local
+if [ ! -f server.crt ] || [ ! -f server.key ] \
+   || [ "$(openssl x509 -in server.crt -noout -subject -nameopt RFC2253)" != "subject=CN=$IP" ] \
+   || ! openssl x509 -in server.crt -noout -checkend 604800 >/dev/null; then
+  openssl req -new -nodes -newkey rsa:2048 -sha256 \
+    -keyout server.key -out server.csr -subj "/CN=$IP"
+  printf "subjectAltName=IP:%s,IP:127.0.0.1,DNS:localhost,DNS:mosquitto\nextendedKeyUsage=serverAuth\n" "$IP" > server.ext
+  openssl x509 -req -sha256 -days 365 -in server.csr -CA ca.crt -CAkey ca.key \
+    -CAcreateserial -out server.crt -extfile server.ext
+  rm -f server.csr server.ext
+  echo "Certificat du serveur créé pour $IP."
+fi
 
-# 3. Certificat du broker signé par la CA, valable pour l'IP du serveur et le local
-printf "subjectAltName=IP:%s,IP:127.0.0.1,DNS:localhost,DNS:mosquitto\nextendedKeyUsage=serverAuth\n" "$IP" > server.ext
-openssl x509 -req -sha256 -days 365 -in server.csr -CA ca.crt -CAkey ca.key \
-  -CAcreateserial -out server.crt -extfile server.ext
+# 3. Certificats clients : un par poste autorisé (usage « authentification client »
+#    uniquement, ils ne peuvent pas servir à se faire passer pour le serveur)
+i=1
+while [ "$i" -le "$NB_CLIENTS" ]; do
+  n="poste$i"
+  if [ ! -f "clients/$n.crt" ]; then
+    openssl req -new -nodes -newkey rsa:2048 -sha256 \
+      -keyout "clients/$n.key" -out "clients/$n.csr" -subj "/CN=Sentinel-X $n"
+    printf "extendedKeyUsage=clientAuth\nkeyUsage=digitalSignature\n" > "clients/$n.ext"
+    openssl x509 -req -sha256 -days 365 -in "clients/$n.csr" -CA ca.crt -CAkey ca.key \
+      -CAcreateserial -out "clients/$n.crt" -extfile "clients/$n.ext"
+    # fichier à importer sur le poste (certificat + clé + CA), protégé par un mot de passe
+    mdp="$(openssl rand -hex 8)"
+    openssl pkcs12 -export -in "clients/$n.crt" -inkey "clients/$n.key" -certfile ca.crt \
+      -name "Sentinel-X $n" -out "clients/$n.p12" -passout "pass:$mdp"
+    echo "$mdp" > "clients/$n.mot-de-passe.txt"
+    rm -f "clients/$n.csr" "clients/$n.ext"
+    echo "Certificat client créé : clients/$n.p12"
+  fi
+  i=$((i + 1))
+done
 
-chmod 644 ca.crt server.crt server.key   # lisibles par l'utilisateur mosquitto (uid 1883)
-chmod 600 ca.key                         # la clé de la CA reste privée
-rm -f server.csr server.ext ca.srl
+# Liste des postes acceptés par le proxy HTTPS (seulement poste1 à posteN)
+: > clients/autorises.pem
+i=1
+while [ "$i" -le "$NB_CLIENTS" ]; do
+  cat "clients/poste$i.crt" >> clients/autorises.pem
+  i=$((i + 1))
+done
+
+chmod 644 ca.crt server.crt server.key clients/autorises.pem   # lisibles par mosquitto et caddy
+chmod 600 ca.key
+for f in clients/*.key clients/*.p12 clients/*.mot-de-passe.txt; do
+  if [ -f "$f" ]; then chmod 600 "$f"; fi
+done
+rm -f ca.srl
 openssl x509 -in server.crt -noout -subject -ext subjectAltName

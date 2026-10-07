@@ -113,18 +113,30 @@ function Ecrire-Passwd {
 
 # Certificat TLS du broker : (re)généré s'il manque ou s'il ne contient pas l'IP actuelle.
 # La CA est conservée, donc l'ESP32 n'a pas besoin d'un nouveau certificat.
+# Certificats : CA, certificat du serveur et certificats clients des postes autorisés.
+# gen-certs.sh ne crée que ce qui manque ; on ne le lance que si quelque chose manque
+# ou si le certificat du serveur ne correspond plus à l'IP.
 function Ecrire-Certificats($ip) {
     $certs = Join-Path $racine "mosquitto\certs"
+    $nbClients = Lire-Env "NB_CLIENTS"
+    if (-not $nbClients) { $nbClients = 5 }
+    $aFaire = $true
     $serveur = Join-Path $certs "server.crt"
     if (Test-Path $serveur) {
         $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2 $serveur
-        if ($cert.Subject -eq "CN=$ip" -and $cert.NotAfter -gt (Get-Date).AddDays(7)) { return $false }
+        $aFaire = -not ($cert.Subject -eq "CN=$ip" -and $cert.NotAfter -gt (Get-Date).AddDays(7))
     }
-    Write-Host "Certificat TLS du broker pour $ip..."
+    # posteN.crt suffit : .p12, .key et mot de passe peuvent être supprimés après distribution
+    $attendus = @("clients\autorises.pem") + (1..$nbClients | ForEach-Object { "clients\poste$_.crt" })
+    if ($attendus | Where-Object { -not (Test-Path (Join-Path $certs $_)) }) { $aFaire = $true }
+    if (-not $aFaire) { return $false }
+
+    Write-Host "Certificats TLS (serveur $ip, $nbClients postes autorisés)..."
     $dossier = (Join-Path $racine "mosquitto") -replace '\\', '/'
     # CERTS_DIR : le script est copié dans /tmp (fins de ligne), il doit écrire dans le dossier monté
-    & docker run --rm -v "${dossier}:/work" -e CERTS_DIR=/work/certs alpine:3.20 sh -c "apk add --no-cache openssl >/dev/null && sed 's/\r$//' /work/gen-certs.sh > /tmp/gen.sh && sh /tmp/gen.sh $ip" | Out-Host
+    & docker run --rm -v "${dossier}:/work" -e CERTS_DIR=/work/certs -e NB_CLIENTS=$nbClients alpine:3.20 sh -c "apk add --no-cache openssl >/dev/null && sed 's/\r$//' /work/gen-certs.sh > /tmp/gen.sh && sh /tmp/gen.sh $ip" | Out-Host
     if ($LASTEXITCODE -ne 0) { throw "Création des certificats TLS échouée." }
+    Write-Host "Certificats des postes autorisés : mosquitto\certs\clients\posteN.p12 (mot de passe dans posteN.mot-de-passe.txt)."
     return $true
 }
 
@@ -203,6 +215,9 @@ Write-Host "  Dashboard dev   : http://localhost:5173"
 Write-Host "  Swagger         : http://localhost:8000/docs (PC uniquement)"
 Write-Host "  Supervision     : http://localhost:8080 (cAdvisor, PC uniquement)"
 Write-Host "  Connexion       : $(Lire-Env 'ADMIN_USER') / mot de passe ADMIN_PASSWORD du fichier .env"
-Write-Host "  Certificat      : pour que le navigateur fasse confiance au dashboard, une fois par poste :"
-Write-Host "                    Import-Certificate -FilePath .\mosquitto\certs\ca.crt -CertStoreLocation Cert:\CurrentUser\Root"
+Write-Host "  Accès HTTPS     : réservé aux postes autorisés. Sur chaque poste, une fois, importer"
+Write-Host "                    son certificat (posteN.p12, mot de passe dans posteN.mot-de-passe.txt)"
+Write-Host "                    et la CA du serveur :"
+Write-Host "                    Import-PfxCertificate -FilePath .\posteN.p12 -CertStoreLocation Cert:\CurrentUser\My -Password (Read-Host -AsSecureString)"
+Write-Host "                    Import-Certificate -FilePath .\ca.crt -CertStoreLocation Cert:\CurrentUser\Root"
 Write-Host "Journaux dans le dossier logs\. Pour tout arrêter : .\arreter.ps1"

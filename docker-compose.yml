@@ -97,6 +97,8 @@ services:
       - ./proxy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./mosquitto/certs/server.crt:/certs/server.crt:ro
       - ./mosquitto/certs/server.key:/certs/server.key:ro
+      - ./mosquitto/certs/ca.crt:/certs/ca.crt:ro                              # vérifie les certificats clients
+      - ./mosquitto/certs/clients/autorises.pem:/certs/clients/autorises.pem:ro  # postes autorisés
 
   # Supervision (MCO) : CPU, RAM, réseau et disque de chaque conteneur, interface sur
   # http://localhost:8080. Montages en lecture seule, interface jamais exposée au Wi-Fi.

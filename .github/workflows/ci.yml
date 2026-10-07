@@ -148,15 +148,19 @@ jobs:
           with urllib.request.urlopen(urllib.request.Request(f"{base}/etat", headers=JETON)) as r:
               assert json.load(r)["modele_entraine"] is True
           EOF
-      - name: Vérifier le proxy HTTPS et l'authentification
+      - name: Vérifier le proxy HTTPS, le certificat client et l'authentification
         run: |
           CA=mosquitto/certs/ca.crt
-          for i in $(seq 1 30); do curl -fsS --cacert $CA https://127.0.0.1/ -o /dev/null && break; sleep 2; done
-          test "$(curl -s -o /dev/null -w '%{http_code}' --cacert $CA https://127.0.0.1/)" = 200
-          test "$(curl -s -o /dev/null -w '%{http_code}' --cacert $CA https://127.0.0.1/api/v1/mesures)" = 401
-          test "$(curl -s -o /dev/null -w '%{http_code}' --cacert $CA https://127.0.0.1/vision/cameras)" = 401
+          POSTE="--cert mosquitto/certs/clients/poste1.crt --key mosquitto/certs/clients/poste1.key"
+          for i in $(seq 1 30); do curl -fsS --cacert $CA $POSTE https://127.0.0.1/ -o /dev/null && break; sleep 2; done
+          test "$(curl -s -o /dev/null -w '%{http_code}' --cacert $CA $POSTE https://127.0.0.1/)" = 200
+          test "$(curl -s -o /dev/null -w '%{http_code}' --cacert $CA $POSTE https://127.0.0.1/api/v1/mesures)" = 401
+          test "$(curl -s -o /dev/null -w '%{http_code}' --cacert $CA $POSTE https://127.0.0.1/vision/cameras)" = 401
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{"buzzer":"on"}' http://localhost:8000/api/v1/tables/ci/commande)" = 401
-          echo "HTTPS OK, routes protégées refusées sans jeton"
+          # sans certificat client, ou avec le certificat du serveur, la connexion TLS est coupée
+          if curl -s -o /dev/null --cacert $CA https://127.0.0.1/; then echo "accepté sans certificat client"; exit 1; fi
+          if curl -s -o /dev/null --cacert $CA --cert mosquitto/certs/server.crt --key mosquitto/certs/server.key https://127.0.0.1/; then echo "server.crt accepté comme client"; exit 1; fi
+          echo "HTTPS OK : certificat client exigé, routes protégées refusées sans jeton"
       - name: Logs en cas d'échec
         if: failure()
         run: docker compose logs --no-color
