@@ -1,0 +1,54 @@
+# Reverse proxy HTTPS de SENTINEL-X : seul point d'entrée web depuis le Wi-Fi.
+#   /api/*     -> backend FastAPI (le backend vérifie lui-même le jeton)
+#   /vision/*  -> module vision sur le PC, seulement si le jeton est valide
+#   le reste   -> dashboard React compilé
+# Certificat : le même que le broker MQTT, signé par la CA du projet.
+{
+	admin off
+	auto_https off
+	servers {
+		protocols h1 h2
+	}
+}
+
+:8443 {
+	tls /certs/server.crt /certs/server.key {
+		protocols tls1.2 tls1.3
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		-Server
+	}
+
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+
+	handle_path /vision/* {
+		# le module vision n'a pas d'authentification : on demande au backend
+		# si le cookie de session est valide avant de laisser passer
+		forward_auth backend:8000 {
+			uri /api/v1/auth/verifier
+		}
+		reverse_proxy host.docker.internal:8001 {
+			flush_interval -1  # flux MJPEG : transmettre les images sans attendre
+		}
+	}
+
+	handle {
+		root * /srv
+		encode gzip
+		try_files {path} /index.html
+		file_server
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

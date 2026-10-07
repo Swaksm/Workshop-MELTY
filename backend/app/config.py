@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     retention_mesures_jours: int = 7
     retention_clips_jours: int = 3
     media_max_mo: int = 500
+    # Authentification de l'API (valeurs générées par lancer.ps1 dans le .env)
+    admin_user: str = "admin"
+    admin_password: str = ""
+    jwt_secret: str = ""
+    jwt_duree_heures: int = 8
 
 
 settings = Settings()

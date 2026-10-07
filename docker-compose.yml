@@ -59,8 +59,8 @@ services:
     tmpfs:
       - /tmp
     ports:
-      - "127.0.0.1:8000:8000"            # dashboard sur le PC
-      - "${SERVER_IP:?lancer lancer.ps1 ou definir SERVER_IP dans .env}:8000:8000"   # autres appareils du Wi-Fi
+      - "127.0.0.1:8000:8000"            # local uniquement (Swagger, dashboard de dev, tests)
+                                         # depuis le Wi-Fi : https://SERVER_IP/api via le proxy
     depends_on:
       db:
         condition: service_healthy
@@ -74,6 +74,29 @@ services:
       interval: 15s
       timeout: 5s
       retries: 3
+
+  # Reverse proxy HTTPS : dashboard compilé, API et flux vidéo, avec le certificat de
+  # la CA du projet. Seul port web joignable depuis le Wi-Fi (443).
+  proxy:
+    <<: *common
+    build: ./frontend
+    mem_limit: 128m
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs:
+      - /tmp
+    ports:
+      - "127.0.0.1:443:8443"
+      - "${SERVER_IP:?lancer lancer.ps1 ou definir SERVER_IP dans .env}:443:8443"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # module vision, qui tourne sur le PC
+    depends_on:
+      backend:
+        condition: service_started
+    volumes:
+      - ./proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./mosquitto/certs/server.crt:/certs/server.crt:ro
+      - ./mosquitto/certs/server.key:/certs/server.key:ro
 
   # Supervision (MCO) : CPU, RAM, réseau et disque de chaque conteneur, interface sur
   # http://localhost:8080. Montages en lecture seule, interface jamais exposée au Wi-Fi.

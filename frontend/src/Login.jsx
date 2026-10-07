@@ -5,14 +5,18 @@ export default function Login({ onSuccess }) {
   const [utilisateur, setUtilisateur] = useState("");
   const [motDePasse, setMotDePasse] = useState("");
   const [erreur, setErreur] = useState(null);
+  const [envoi, setEnvoi] = useState(false);
 
-  function onSubmit(e) {
+  async function onSubmit(e) {
     e.preventDefault();
-    if (connecter(utilisateur, motDePasse)) {
-      onSuccess();
-    } else {
-      setErreur("Identifiant ou mot de passe incorrect.");
+    setEnvoi(true);
+    const probleme = await connecter(utilisateur, motDePasse).catch(() => "API injoignable.");
+    setEnvoi(false);
+    if (probleme) {
+      setErreur(probleme);
       setMotDePasse("");
+    } else {
+      onSuccess();
     }
   }
 
@@ -53,8 +57,8 @@ export default function Login({ onSuccess }) {
 
         {erreur && <div className="banner error" role="alert">{erreur}</div>}
 
-        <button type="submit" className="btn primary block">
-          Se connecter
+        <button type="submit" className="btn primary block" disabled={envoi}>
+          {envoi ? "Connexion…" : "Se connecter"}
         </button>
 
         <p className="login-foot">Sentinel G9 · Accès réservé à l'équipe</p>

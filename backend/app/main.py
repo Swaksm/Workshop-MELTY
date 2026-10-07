@@ -6,7 +6,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from app import detection, ml, models, retention, supervision
+from app import auth, detection, ml, models, retention, supervision
 from app.db import Base, SessionLocal, engine
 from app.mqtt import send_buzzer, send_led, start_mqtt
 from app.schemas import (
@@ -42,6 +42,10 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="SENTINEL-X API", lifespan=lifespan)
+app.include_router(auth.router)
+
+# Toutes les routes /api/v1 exigent un jeton, sauf la connexion (routeur auth)
+PROTEGE = [Depends(auth.exiger_auth)]
 
 
 @app.get("/health")
@@ -49,12 +53,12 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/api/v1/supervision")
+@app.get("/api/v1/supervision", dependencies=PROTEGE)
 def get_supervision(session: Session = Depends(get_session)) -> dict:
     return supervision.etat(session)
 
 
-@app.get("/api/v1/mesures", response_model=list[MeasurementOut])
+@app.get("/api/v1/mesures", response_model=list[MeasurementOut], dependencies=PROTEGE)
 def list_mesures(
     table_id: str | None = None,
     limit: int = 100,
@@ -70,7 +74,7 @@ def list_mesures(
     return session.scalars(stmt).all()
 
 
-@app.get("/api/v1/alertes", response_model=list[AlertOut])
+@app.get("/api/v1/alertes", response_model=list[AlertOut], dependencies=PROTEGE)
 def list_alertes(
     table_id: str | None = None,
     limit: int = 50,
@@ -86,7 +90,7 @@ def list_alertes(
     return session.scalars(stmt).all()
 
 
-@app.get("/api/v1/detections", response_model=list[DetectionOut])
+@app.get("/api/v1/detections", response_model=list[DetectionOut], dependencies=PROTEGE)
 def list_detections(
     table_id: str | None = None,
     limit: int = 50,
@@ -102,7 +106,7 @@ def list_detections(
     return session.scalars(stmt).all()
 
 
-@app.get("/api/v1/tables/{table_id}/etat", response_model=EtatOut)
+@app.get("/api/v1/tables/{table_id}/etat", response_model=EtatOut, dependencies=PROTEGE)
 def etat(table_id: str) -> EtatOut:
     return EtatOut(
         alerte_active=detection.is_active(table_id),
@@ -110,7 +114,7 @@ def etat(table_id: str) -> EtatOut:
     )
 
 
-@app.post("/api/v1/tables/{table_id}/entrainement", response_model=EntrainementOut)
+@app.post("/api/v1/tables/{table_id}/entrainement", response_model=EntrainementOut, dependencies=PROTEGE)
 def entrainement(table_id: str, session: Session = Depends(get_session)):
     rows = list(
         reversed(
@@ -132,7 +136,7 @@ def entrainement(table_id: str, session: Session = Depends(get_session)):
     return EntrainementOut(mesures_utilisees=len(rows))
 
 
-@app.post("/api/v1/tables/{table_id}/commande", status_code=202)
+@app.post("/api/v1/tables/{table_id}/commande", status_code=202, dependencies=PROTEGE)
 def commande(table_id: str, body: CommandeIn) -> dict[str, str]:
     if body.buzzer is None and body.led is None:
         raise HTTPException(status_code=422, detail="Indique buzzer, led, ou les deux.")

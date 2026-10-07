@@ -81,17 +81,26 @@ if ($ipServeur -eq $IP_REPLI) {
     }
 }
 
-function New-Secret {
-    -join ((48..57 + 65..90 + 97..122) | Get-Random -Count 24 | ForEach-Object { [char]$_ })
+# Secret aléatoire tiré par le générateur cryptographique de Windows
+# (Get-Random n'est pas fait pour des mots de passe)
+function New-Secret([int]$longueur = 24) {
+    $alphabet = [char[]]((48..57) + (65..90) + (97..122))
+    $octets = New-Object byte[] $longueur
+    [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($octets)
+    -join ($octets | ForEach-Object { $alphabet[$_ % $alphabet.Length] })
 }
 
-foreach ($nom in @("MQTT_PASSWORD", "VISION_MQTT_PASSWORD", "ESP32_MQTT_PASSWORD")) {
+foreach ($nom in @("MQTT_PASSWORD", "VISION_MQTT_PASSWORD", "ESP32_MQTT_PASSWORD", "ADMIN_PASSWORD")) {
     $valeur = Lire-Env $nom
     if (-not $valeur -or $valeur -eq "change-me") {
         Definir-Variable $nom (New-Secret)
     }
 }
 Definir-Variable "MQTT_USER" "backend"
+if (-not (Lire-Env "ADMIN_USER")) { Definir-Variable "ADMIN_USER" "admin" }
+if (-not (Lire-Env "JWT_SECRET") -or (Lire-Env "JWT_SECRET") -eq "change-me") {
+    Definir-Variable "JWT_SECRET" (New-Secret 48)   # clé de signature des jetons de l'API
+}
 
 function Ecrire-Passwd {
     $pwBackend = Lire-Env "MQTT_PASSWORD"
@@ -191,7 +200,9 @@ if (-not $SansVision) {
 
 Write-Host ""
 Write-Host "Prêt :"
-Write-Host "  Dashboard  : http://localhost:5173"
-Write-Host "  API        : http://localhost:8000/docs"
-Write-Host "  Vision     : http://localhost:8001/stream"
+Write-Host "  Dashboard HTTPS : https://localhost  (autres postes : https://$ipServeur)"
+Write-Host "  Dashboard dev   : http://localhost:5173"
+Write-Host "  Swagger         : http://localhost:8000/docs (PC uniquement)"
+Write-Host "  Supervision     : http://localhost:8080 (cAdvisor, PC uniquement)"
+Write-Host "  Connexion       : $(Lire-Env 'ADMIN_USER') / mot de passe ADMIN_PASSWORD du fichier .env"
 Write-Host "Journaux dans le dossier logs\. Pour tout arrêter : .\arreter.ps1"

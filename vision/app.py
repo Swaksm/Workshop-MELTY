@@ -29,6 +29,9 @@ CLIP_SECONDS = 5.0
 CLIP_SIZE = (320, 240)
 MEDIA_DIR = Path(os.environ.get("MEDIA_DIR", Path(__file__).resolve().parent.parent / "media"))
 STREAM_PORT = int(os.environ.get("STREAM_PORT", "8001"))
+# Boucle locale uniquement : depuis le réseau, le flux passe par le proxy HTTPS,
+# qui vérifie la session avant de laisser passer (pas d'accès direct sans mot de passe)
+STREAM_HOST = os.environ.get("STREAM_HOST", "127.0.0.1")
 
 COLORS = {"person": (0, 0, 255), "animal": (255, 200, 0)}
 
@@ -240,7 +243,7 @@ def main() -> None:
 
     model = YOLO("yolov8n.pt")
     threading.Thread(target=capture_loop, args=(model, client), daemon=True).start()
-    uvicorn.run(app, host="0.0.0.0", port=STREAM_PORT)
+    uvicorn.run(app, host=STREAM_HOST, port=STREAM_PORT)
 
 
 if __name__ == "__main__":

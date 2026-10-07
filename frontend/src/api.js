@@ -1,7 +1,13 @@
+import { SESSION_EXPIREE } from "./auth";
+
 const BASE = "/api/v1";
 
 async function request(path, options) {
   const res = await fetch(BASE + path, options);
+  if (res.status === 401) {
+    // jeton expiré ou absent : retour à l'écran de connexion
+    window.dispatchEvent(new Event(SESSION_EXPIREE));
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.detail ?? `Erreur ${res.status}`);
