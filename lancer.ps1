@@ -83,8 +83,19 @@ function Ecrire-Passwd {
     if ($LASTEXITCODE -ne 0) { throw "Création du fichier mosquitto/passwd échouée." }
 }
 
+function Ecrire-Certificats {
+    $certs = Join-Path $racine "mosquitto\certs"
+    if (Test-Path (Join-Path $certs "server.crt")) { return }
+    Write-Host "Création des certificats TLS (première fois)..."
+    $dossier = (Join-Path $racine "mosquitto") -replace '\\', '/'
+    & docker run --rm -v "${dossier}:/work" alpine:3.20 sh -c "apk add --no-cache openssl >/dev/null && sed 's/\r$//' /work/gen-certs.sh > /tmp/gen.sh && sh /tmp/gen.sh $IP_TABLE"
+    if ($LASTEXITCODE -ne 0) { throw "Création des certificats TLS échouée." }
+    Write-Host "ATTENTION : nouvelle CA créée. Le fichier mosquitto\certs\ca.crt doit être recopié dans le firmware de l'ESP32."
+}
+
 Attendre-Docker
 Ecrire-Passwd
+Ecrire-Certificats
 Write-Host "1/3 Stack Docker (base, broker MQTT, backend)..."
 cmd /c "docker compose up -d --build"
 if ($LASTEXITCODE -ne 0) { throw "docker compose up a échoué." }
