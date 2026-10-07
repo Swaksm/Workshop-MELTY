@@ -28,7 +28,7 @@ def _features(values: np.ndarray, i: int) -> list[float]:
 def _new_model() -> Pipeline:
     return make_pipeline(
         StandardScaler(),
-        LocalOutlierFactor(n_neighbors=20, novelty=True, contamination=0.05),
+        LocalOutlierFactor(n_neighbors=20, novelty=True, contamination=0.02),
     )
 
 
