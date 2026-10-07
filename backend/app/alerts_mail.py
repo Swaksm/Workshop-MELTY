@@ -23,6 +23,51 @@ def _date(moment: datetime) -> str:
     return moment.strftime("%d/%m/%Y à %H:%M")
 
 
+def _phrase_causale(details: dict | None) -> str:
+    if not details or not details.get("caracteristiques"):
+        return ""
+    avec_ecart = [c for c in details["caracteristiques"] if c.get("ecart") is not None]
+    if not avec_ecart:
+        return ""
+    pire = max(avec_ecart, key=lambda c: abs(c["ecart"]))
+    sens = "au-dessus" if pire["ecart"] > 0 else "en dessous"
+    return (
+        f'<div style="font-size:13px;color:{INK};margin:4px 0 16px;line-height:1.5;">'
+        f'Surtout causée par <b>{pire["nom"]}</b> : {pire["valeur"]} contre {pire.get("normal", "—")} habituellement, '
+        f'soit {abs(pire["ecart"])} σ {sens} de la normale.</div>'
+    )
+
+
+def _tableau_caracteristiques(details: dict | None) -> str:
+    if not details or not details.get("caracteristiques"):
+        return ""
+    lignes = ""
+    for c in details["caracteristiques"]:
+        ecart = c.get("ecart")
+        hors_norme = ecart is not None and abs(ecart) > 3
+        couleur = f"color:{ALERT};font-weight:bold;" if hors_norme else ""
+        ecart_txt = f"{ecart} σ" if ecart is not None else "—"
+        lignes += (
+            f'<tr><td style="padding:6px 8px;border-bottom:1px solid {LINE};font-size:12px;">{c["nom"]}</td>'
+            f'<td style="padding:6px 8px;border-bottom:1px solid {LINE};font-size:12px;{couleur}">{c["valeur"]}</td>'
+            f'<td style="padding:6px 8px;border-bottom:1px solid {LINE};font-size:12px;color:{MUTED};">{c.get("normal", "—")}</td>'
+            f'<td style="padding:6px 8px;border-bottom:1px solid {LINE};font-size:12px;{couleur}">{ecart_txt}</td></tr>'
+        )
+    modele = details.get("modele", "")
+    facteur = details.get("facteur_lof")
+    sous = f" · facteur LOF {facteur} (normal ≈ 1)" if facteur is not None else ""
+    return (
+        f'<div style="font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:{MUTED};margin:20px 0 8px;">'
+        f"Comment c'est détecté — modèle {modele}{sous}</div>"
+        f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">'
+        f'<tr><th style="text-align:left;padding:6px 8px;border-bottom:2px solid {LINE};font-size:11px;color:{MUTED};">Caractéristique</th>'
+        f'<th style="text-align:left;padding:6px 8px;border-bottom:2px solid {LINE};font-size:11px;color:{MUTED};">Valeur</th>'
+        f'<th style="text-align:left;padding:6px 8px;border-bottom:2px solid {LINE};font-size:11px;color:{MUTED};">Normal</th>'
+        f'<th style="text-align:left;padding:6px 8px;border-bottom:2px solid {LINE};font-size:11px;color:{MUTED};">Écart</th></tr>'
+        f"{lignes}</table>"
+    )
+
+
 def _tuile(libelle: str, valeur: str) -> str:
     return (
         f'<td style="width:33%;padding:14px 12px;background:#f8fafb;border:1px solid {LINE};'
@@ -57,7 +102,9 @@ def _enveloppe(titre: str, sous_titre: str, corps: str, pied_photo: str = "") ->
 </body></html>"""
 
 
-def mail_anomalie(table_id: str, temp: float, hum: float, gas: int) -> EmailMessage:
+def mail_anomalie(
+    table_id: str, temp: float, hum: float, gas: int, details: dict | None = None
+) -> EmailMessage:
     moment = _maintenant()
     corps = f"""
     <div style="font-size:15px;line-height:1.5;margin-bottom:18px;">
@@ -66,20 +113,32 @@ def mail_anomalie(table_id: str, temp: float, hum: float, gas: int) -> EmailMess
     <table role="presentation" width="100%" cellspacing="8" cellpadding="0">
       <tr>{_tuile("Température", f"{temp:.1f} °C")}{_tuile("Humidité", f"{hum:.1f} %")}{_tuile("Gaz (ADC)", str(gas))}</tr>
     </table>
+    {_phrase_causale(details)}
+    {_tableau_caracteristiques(details)}
     <div style="font-size:13px;color:{MUTED};margin-top:16px;line-height:1.5;">
       L'alarme sonore de la table est activée. Elle se coupe automatiquement quand les mesures redeviennent normales.
     </div>"""
     html = _enveloppe("Anomalie capteurs", _date(moment), corps)
+    lignes_texte = ""
+    if details and details.get("caracteristiques"):
+        lignes_texte = "\nDétail :\n" + "\n".join(
+            f"- {c['nom']} : {c['valeur']} (normal {c.get('normal', '—')}"
+            + (f", écart {c['ecart']} σ)" if c.get("ecart") is not None else ")")
+            for c in details["caracteristiques"]
+        ) + "\n"
     texte = (
         f"ANOMALIE CAPTEURS · table {table_id}\n"
         f"Date : {_date(moment)}\n\n"
-        f"Température : {temp:.1f} °C\nHumidité : {hum:.1f} %\nGaz (ADC) : {gas}\n\n"
+        f"Température : {temp:.1f} °C\nHumidité : {hum:.1f} %\nGaz (ADC) : {gas}\n"
+        f"{lignes_texte}\n"
         "L'alarme sonore est activée. Elle se coupe quand les mesures redeviennent normales.\n"
     )
     return _composer(f"[SENTINEL-X] Anomalie capteurs · table {table_id}", texte, html)
 
 
-def mail_hausse(table_id: str, temp: float, probabilite: float) -> EmailMessage:
+def mail_hausse(
+    table_id: str, temp: float, probabilite: float, details: dict | None = None
+) -> EmailMessage:
     moment = _maintenant()
     pourcentage = round(probabilite * 100)
     corps = f"""
@@ -93,14 +152,22 @@ def mail_hausse(table_id: str, temp: float, probabilite: float) -> EmailMessage:
     <div style="background:{LINE};height:8px;width:100%;">
       <div style="background:#f5b041;height:8px;width:{max(1, min(100, pourcentage))}%;"></div>
     </div>
+    {_tableau_caracteristiques(details)}
     <div style="font-size:13px;color:{MUTED};margin-top:16px;line-height:1.5;">
       Ce n'est pas un seuil : le modèle a reconnu une tendance à la hausse sur les dernières minutes.
     </div>"""
     html = _enveloppe("Hausse de température", _date(moment), corps)
+    lignes_texte = ""
+    if details and details.get("caracteristiques"):
+        lignes_texte = "\nDétail :\n" + "\n".join(
+            f"- {c['nom']} : {c['valeur']} (référence {c.get('normal', '—')})"
+            for c in details["caracteristiques"]
+        ) + "\n"
     texte = (
         f"HAUSSE DE TEMPÉRATURE · table {table_id}\n"
         f"Date : {_date(moment)}\nTempérature actuelle : {temp:.1f} °C\n"
-        f"Probabilité de hausse : {pourcentage} %\n\n"
+        f"Probabilité de hausse : {pourcentage} %\n"
+        f"{lignes_texte}\n"
         "Le modèle a reconnu une tendance à la hausse sur les dernières minutes.\n"
     )
     return _composer(f"[SENTINEL-X] Hausse de température · table {table_id}", texte, html)

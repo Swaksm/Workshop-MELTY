@@ -36,18 +36,19 @@ def evaluate(session: Session, table_id: str, set_buzzer: Callable[[str, str], N
     if anomaly and table_id not in _active:
         _active.add(table_id)
         last = rows[-1]
+        details = ml.explication(model, values)
         session.add(
             Alert(
                 table_id=table_id,
                 temp=last.temp,
                 hum=last.hum,
                 gas=last.gas,
-                details=ml.explication(model, values),
+                details=details,
             )
         )
         session.commit()
         set_buzzer(table_id, "on")
-        notifier.anomalie(table_id, last.temp, last.hum, last.gas)
+        notifier.anomalie(table_id, last.temp, last.hum, last.gas, details)
     elif not anomaly and table_id in _active:
         _active.discard(table_id)
         set_buzzer(table_id, "off")

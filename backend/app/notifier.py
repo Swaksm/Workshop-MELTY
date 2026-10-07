@@ -55,11 +55,15 @@ class Notifier:
     def _lancer(self, msg: EmailMessage) -> None:
         threading.Thread(target=self._envoyer, args=(msg,), daemon=True).start()
 
-    def anomalie(self, table_id: str, temp: float, hum: float, gas: int) -> bool:
-        return self._publier("anomalie", lambda: mail_anomalie(table_id, temp, hum, gas))
+    def anomalie(
+        self, table_id: str, temp: float, hum: float, gas: int, details: dict | None = None
+    ) -> bool:
+        return self._publier("anomalie", lambda: mail_anomalie(table_id, temp, hum, gas, details))
 
-    def hausse(self, table_id: str, temp: float, probabilite: float) -> bool:
-        return self._publier("hausse", lambda: mail_hausse(table_id, temp, probabilite))
+    def hausse(
+        self, table_id: str, temp: float, probabilite: float, details: dict | None = None
+    ) -> bool:
+        return self._publier("hausse", lambda: mail_hausse(table_id, temp, probabilite, details))
 
     def personne(
         self,
