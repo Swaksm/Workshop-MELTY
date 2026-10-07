@@ -1,12 +1,15 @@
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import numpy as np
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app import auth, detection, ml, models, retention, supervision
+from app.config import settings
 from app.db import Base, SessionLocal, engine
 from app.mqtt import send_buzzer, send_led, start_mqtt
 from app.schemas import (
@@ -33,6 +36,7 @@ async def lifespan(app: FastAPI):
         )
         conn.execute(text("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS details JSON"))
         conn.execute(text("ALTER TABLE measurements ADD COLUMN IF NOT EXISTS pir INTEGER"))
+        conn.execute(text("ALTER TABLE detections ADD COLUMN IF NOT EXISTS clip VARCHAR(128)"))
     mqtt_client = start_mqtt()
     arret_retention = retention.demarrer()
     yield
@@ -104,6 +108,17 @@ def list_detections(
     if table_id:
         stmt = stmt.where(models.Detection.table_id == table_id)
     return session.scalars(stmt).all()
+
+
+@app.get("/api/v1/detections/{detection_id}/clip", dependencies=PROTEGE)
+def get_clip(detection_id: int, session: Session = Depends(get_session)):
+    detection_row = session.get(models.Detection, detection_id)
+    if detection_row is None or not detection_row.clip:
+        raise HTTPException(status_code=404, detail="Pas de vidéo pour cette détection.")
+    chemin = Path(settings.media_dir) / Path(detection_row.clip).name
+    if chemin.suffix != ".mp4" or not chemin.is_file():
+        raise HTTPException(status_code=404, detail="Fichier vidéo introuvable.")
+    return FileResponse(chemin, media_type="video/mp4")
 
 
 @app.get("/api/v1/tables/{table_id}/etat", response_model=EtatOut, dependencies=PROTEGE)

@@ -30,7 +30,12 @@ def record_person(
     set_buzzer: Callable[[str, str], None],
 ) -> None:
     session.add(
-        Detection(table_id=table_id, label=detection.label, confidence=detection.confidence)
+        Detection(
+            table_id=table_id,
+            label=detection.label,
+            confidence=detection.confidence,
+            clip=detection.clip,
+        )
     )
     session.commit()
 

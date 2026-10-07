@@ -27,6 +27,7 @@ class Detection(Base):
     table_id: Mapped[str] = mapped_column(String(64), index=True)
     label: Mapped[str] = mapped_column(String(32))
     confidence: Mapped[float] = mapped_column(Float)
+    clip: Mapped[str | None] = mapped_column(String(128), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
     )

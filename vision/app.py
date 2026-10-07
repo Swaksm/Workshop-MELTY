@@ -132,7 +132,7 @@ def ecrire_clip(enregistrement: dict, client: mqtt.Client) -> None:
     fps = min(max(len(frames) / duree, 3.0), 15.0)
     MEDIA_DIR.mkdir(parents=True, exist_ok=True)
     nom = f"clip_{TABLE_ID}_{int(enregistrement['debut'])}.mp4"
-    writer = cv2.VideoWriter(str(MEDIA_DIR / nom), cv2.VideoWriter_fourcc(*"mp4v"), fps, CLIP_SIZE)
+    writer = cv2.VideoWriter(str(MEDIA_DIR / nom), cv2.VideoWriter_fourcc(*"avc1"), fps, CLIP_SIZE)
     for _, image in frames:
         writer.write(image)
     writer.release()
@@ -154,6 +154,7 @@ def capture_loop(model: YOLO, client: mqtt.Client) -> None:
     tampon: deque = deque()
     enregistrement: dict | None = None
     frames, debut_mesure = 0, time.time()
+    echecs_lecture = 0
 
     while True:
         with state_lock:
@@ -170,8 +171,15 @@ def capture_loop(model: YOLO, client: mqtt.Client) -> None:
 
         ok, frame = cap.read()
         if not ok:
+            echecs_lecture += 1
+            if echecs_lecture >= 10:
+                print(f"Caméra {opened} ne répond plus, réouverture...")
+                cap.release()
+                cap = open_camera(opened)
+                echecs_lecture = 0
             time.sleep(1)
             continue
+        echecs_lecture = 0
 
         result = model(frame, verbose=False)[0]
         frames += 1

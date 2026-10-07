@@ -50,6 +50,7 @@ export default function App({ onLogout }) {
   const [erreurCamera, setErreurCamera] = useState(null);
   const [presence, setPresence] = useState({ progression: 0, confirmee: false });
   const [supervision, setSupervision] = useState(null);
+  const [clipOuvert, setClipOuvert] = useState(null);
 
   useEffect(() => {
     const charger = () =>
@@ -393,7 +394,27 @@ export default function App({ onLogout }) {
                     <div className="alert-title">Personne détectée</div>
                     <div className="alert-meta">
                       {formatDate(d.created_at)} · confiance {Math.round(d.confidence * 100)} %
+                      {d.clip && (
+                        <>
+                          {" · "}
+                          <button
+                            type="button"
+                            className="lien-video"
+                            onClick={() => setClipOuvert(clipOuvert === d.id ? null : d.id)}
+                          >
+                            {clipOuvert === d.id ? "Masquer la vidéo" : "Voir la vidéo"}
+                          </button>
+                        </>
+                      )}
                     </div>
+                    {d.clip && clipOuvert === d.id && (
+                      <video
+                        className="clip-video"
+                        src={`/api/v1/detections/${d.id}/clip`}
+                        controls
+                        autoPlay
+                      />
+                    )}
                   </div>
                 </li>
               ))}

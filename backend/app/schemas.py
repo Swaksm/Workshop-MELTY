@@ -18,6 +18,7 @@ class DetectionOut(BaseModel):
     table_id: str
     label: str
     confidence: float
+    clip: str | None = None
     created_at: datetime
 
 
