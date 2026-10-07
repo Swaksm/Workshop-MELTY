@@ -497,13 +497,13 @@ Le modèle ne contient aucun seuil écrit à la main. Il apprend ce qui est norm
 
 **Entrée.** À chaque mesure, on prend les 30 dernières (environ 2,5 minutes). Cinq valeurs sont calculées : température, humidité et gaz de la mesure courante, plus la pente de la température et du gaz sur la fenêtre (la tendance).
 
-**Algorithme.** Pipeline scikit-learn : `StandardScaler` puis `LocalOutlierFactor(n_neighbors=20, novelty=True, contamination=0.05)`. Un point est une anomalie s'il se trouve dans une zone beaucoup moins dense que ses 20 voisins appris.
+**Algorithme.** Pipeline scikit-learn : `StandardScaler` puis `LocalOutlierFactor(n_neighbors=20, novelty=True, contamination=0.02)`. Un point est une anomalie s'il se trouve dans une zone beaucoup moins dense que ses 20 voisins appris.
 
 **Entraînement.** `POST /entrainement` lit jusqu'à 5000 mesures, calcule les 5 valeurs pour chacune, entraîne le pipeline et l'enregistre dans `backend/models/<table>.joblib`. Le réentraînement remplace le modèle précédent.
 
 **Bonnes pratiques.** Entraîne sur une période normale : pas de test au gaz, pas de passage devant la caméra, pas de pic simulé. Ce qui est dans les données d'entraînement est appris comme normal.
 
-**Choix du modèle.** Sur des données simulées, Isolation Forest détectait 94 % des pics avec 6,8 % de fausses alertes, et LOF détecte 100 % des pics avec 0,5 % de fausses alertes. Ces chiffres viennent de données simulées : à revérifier avec les vraies mesures.
+**Choix du modèle.** Sur des données simulées (avec `contamination=0.05`), Isolation Forest détectait 94 % des pics avec 6,8 % de fausses alertes, et LOF détecte 100 % des pics avec 0,5 % de fausses alertes. `contamination` est passé à `0.02` ensuite, suite à des fausses alertes sur de vraies mesures (un changement normal de 1 °C signalé comme anomalie, baseline trop courte). Les chiffres ci-dessus n'ont pas été remesurés avec ce nouveau réglage.
 
 ### Entraînement du modèle capteurs (LOF)
 
@@ -512,10 +512,10 @@ Le modèle capteurs est **entraîné par table**, à la demande :
 1. Les 5000 dernières mesures de la table sont lues, dans l'ordre chronologique.
 2. Si moins de **100 mesures** sont disponibles, l'entraînement est refusé (HTTP 400).
 3. Pour chaque mesure, cinq caractéristiques sont calculées sur une fenêtre glissante de 30 mesures : température, humidité, gaz, pente de la température et pente du gaz.
-4. Un pipeline `StandardScaler` puis `LocalOutlierFactor(n_neighbors=20, novelty=True, contamination=0.05)` est ajusté sur ces valeurs.
+4. Un pipeline `StandardScaler` puis `LocalOutlierFactor(n_neighbors=20, novelty=True, contamination=0.02)` est ajusté sur ces valeurs.
 5. Le modèle est enregistré dans `backend/models/<table>.joblib`. Un nouvel entraînement remplace le précédent.
 
-Le modèle considère donc que **toutes les mesures d'entraînement sont normales**. Il faut l'entraîner pendant une période calme. Le paramètre `contamination=0.05` signifie que les 5 % de points les plus isolés de la baseline servent de référence pour la frontière.
+Le modèle considère donc que **toutes les mesures d'entraînement sont normales**. Il faut l'entraîner pendant une période calme. Le paramètre `contamination=0.02` signifie que les 2 % de points les plus isolés de la baseline servent de référence pour la frontière.
 
 Lancer l'entraînement :
 
@@ -553,6 +553,17 @@ Points à retenir :
 - **Sans modèle entraîné, aucune alerte capteurs** : le LOF n'a pas de baseline à comparer. Le Random Forest de hausse fonctionne dès le démarrage du backend, à condition d'avoir 30 mesures.
 - **Un mail par type toutes les 5 minutes** : un événement pendant le délai de son type ne donne pas de mail, mais il reste enregistré et visible sur le dashboard.
 - **Le buzzer est partagé** : la fin d'une alerte (ou le buzzer de 10 s de la vidéo) peut couper une autre alerte en cours.
+
+### Affichage d'une alerte sur le dashboard
+
+Dès que `alerte_active` est vrai ou qu'une personne a été détectée il y a moins de 15 s, un **bandeau rouge** apparaît en haut de la page (sous le titre), avec un récapitulatif en une ligne par type d'alerte en cours (heure, valeurs, confiance). Il disparaît automatiquement au retour à la normale.
+
+Chaque alerte capteurs, dans la liste du bas, a un bouton **Détail** qui affiche :
+- une phrase qui nomme la caractéristique la plus responsable de l'anomalie (ex. « surtout causée par humidité : 76 contre 50 habituellement, soit 13 σ au-dessus ») ;
+- le tableau complet des 5 caractéristiques (valeur, normal appris, écart en écarts-types) ;
+- un mini-graphe température/gaz sur la fenêtre 10 min avant → 2 min après l'alerte, avec une ligne pointillée au moment exact.
+
+Ce mini-graphe est construit côté navigateur à partir des mesures déjà chargées (limite 100, fenêtre d'une heure) : pour une alerte ancienne ou après un rechargement de page, il peut afficher « pas assez de mesures en mémoire » au lieu du graphe.
 
 ## 12. Surveillance vidéo
 
