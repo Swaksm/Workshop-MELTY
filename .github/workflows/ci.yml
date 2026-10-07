@@ -54,6 +54,7 @@ jobs:
             echo "$v=$(openssl rand -hex 12)" >> .env
           done
           docker run --rm -v "$PWD/mosquitto:/work" eclipse-mosquitto:2 sh -c "mosquitto_passwd -b -c /work/passwd backend $(grep ^MQTT_PASSWORD= .env | cut -d= -f2) && mosquitto_passwd -b /work/passwd vision $(grep ^VISION_MQTT_PASSWORD= .env | cut -d= -f2) && mosquitto_passwd -b /work/passwd esp32 $(grep ^ESP32_MQTT_PASSWORD= .env | cut -d= -f2) && chmod 644 /work/passwd"
+          sh mosquitto/gen-certs.sh 127.0.0.2
       - name: Valider docker-compose
         run: docker compose config --quiet
       - name: Lancer la stack
