@@ -28,11 +28,11 @@ function Attendre-Docker {
 
 Set-Location $racine
 
-$IP_TABLE = "192.168.52.1"
-
 function Get-AdresseHotspot {
-    $adresse = Get-NetIPAddress -AddressFamily IPv4 -IPAddress $IP_TABLE -ErrorAction SilentlyContinue
-    if ($adresse) { return $IP_TABLE }
+    $adresse = Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias "Wi-Fi" -ErrorAction SilentlyContinue |
+        Where-Object { $_.IPAddress -notlike "169.254.*" } |
+        Select-Object -First 1
+    if ($adresse) { return $adresse.IPAddress }
     return "127.0.0.1"
 }
 
@@ -51,11 +51,9 @@ function Definir-Variable($nom, $valeur) {
 $hotspot = Get-AdresseHotspot
 Definir-Variable "HOTSPOT_IP" $hotspot
 if ($hotspot -eq "127.0.0.1") {
-    Write-Host "Hotspot inactif : l'ESP32 ne pourra pas se connecter. Active le point d'accès puis relance."
-} elseif ($hotspot -ne "192.168.52.1") {
-    Write-Host "ATTENTION : le hotspot est en $hotspot, le firmware attend 192.168.52.1 (gateway et MQTT_HOST)."
+    Write-Host "Wi-Fi inactif : l'ESP32 ne pourra pas se connecter. Vérifie la connexion au Wi-Fi puis relance."
 } else {
-    Write-Host "Hotspot détecté : $hotspot"
+    Write-Host "PC détecté sur le Wi-Fi : $hotspot (à mettre dans MQTT_HOST du firmware si elle change)"
 }
 
 function Lire-Env($nom) {
