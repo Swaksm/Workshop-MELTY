@@ -157,6 +157,42 @@ h2 {
   background: rgba(255, 107, 107, 0.08);
 }
 
+.alert-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 18px;
+  border: 1px solid var(--alert);
+  background: rgba(255, 107, 107, 0.16);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  animation: alert-pulse 1.6s ease-in-out infinite;
+}
+
+.alert-banner-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.alert-banner-icon {
+  color: var(--alert);
+  font-size: 15px;
+}
+
+@keyframes alert-pulse {
+  0%, 100% { border-color: var(--alert); }
+  50% { border-color: rgba(255, 107, 107, 0.4); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .alert-banner {
+    animation: none;
+  }
+}
+
 /* ---- indicateurs ---- */
 
 .tiles {

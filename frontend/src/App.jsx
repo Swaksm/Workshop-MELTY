@@ -170,6 +170,26 @@ export default function App({ onLogout }) {
 
       {erreur && <div className="banner error">Connexion à l'API impossible : {erreur}</div>}
 
+      {(etat.alerte_active || personneRecente) && (
+        <div className="banner alert-banner">
+          {etat.alerte_active && alertes[0] && (
+            <div className="alert-banner-line">
+              <span className="alert-banner-icon">⚠</span>
+              {alertes[0].kind === "hausse_temperature" ? "Hausse de température" : "Anomalie capteurs"} à{" "}
+              {formatHeure(alertes[0].created_at)} — {alertes[0].temp.toFixed(1)} °C · {alertes[0].hum.toFixed(1)} % ·
+              gaz {alertes[0].gas}
+            </div>
+          )}
+          {personneRecente && (
+            <div className="alert-banner-line">
+              <span className="alert-banner-icon">⚠</span>
+              Personne détectée à {formatHeure(personneRecente.created_at)} (confiance{" "}
+              {Math.round(personneRecente.confidence * 100)} %)
+            </div>
+          )}
+        </div>
+      )}
+
       <section className="tiles">
         <Tuile label="Température" valeur={derniere?.temp} unite="°C" />
         <Tuile label="Humidité" valeur={derniere?.hum} unite="%HR" />
