@@ -15,3 +15,4 @@ firmware/sentinel_temp/secrets.h
 *.key
 *.crt
 message.txt
+firmware/sentinel_temp/ca_cert.h

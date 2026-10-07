@@ -1,0 +1,5 @@
+const char* CA_CERT = R"EOF(
+-----BEGIN CERTIFICATE-----
+Coller ici le contenu de mosquitto/certs/ca.crt
+-----END CERTIFICATE-----
+)EOF";

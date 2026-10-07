@@ -2,10 +2,12 @@
 #include <ArduinoOTA.h>
 #include <DHT.h>
 #include <PubSubClient.h>
+#include <WiFiClientSecure.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include "secrets.h"
+#include "ca_cert.h"
 
 // ================= Broches =================
 #define DHTPIN     4
@@ -57,13 +59,13 @@ const char* ssid     = WIFI_SSID;
 const char* password = WIFI_PASSWORD;
 
 // MQTT_HOST défini dans secrets.h (IP du PC, change avec le DHCP du labo)
-const int   MQTT_PORT = 1883;
+const int   MQTT_PORT = 8883;
 
 String topicSensors;
 String topicCmd;
 
 DHT dht(DHTPIN, DHTTYPE);
-WiFiClient wifiClient;
+WiFiClientSecure wifiClient;
 PubSubClient mqtt(wifiClient);
 
 // ================= Intervalles (ms) =================
@@ -871,6 +873,8 @@ void setup() {
     String("sentinelx/") +
     TABLE_ID +
     "/cmd";
+
+  wifiClient.setCACert(CA_CERT);
 
   mqtt.setServer(
     MQTT_HOST,
