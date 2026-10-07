@@ -34,12 +34,16 @@ services:
     cap_drop: [ALL]
     read_only: true              # seul le volume de données est inscriptible
     ports:
-      - "127.0.0.1:1883:1883"            # module vision (sur le PC)
-      - "${HOTSPOT_IP}:1883:1883"        # ESP32 (réseau de table uniquement)
+      - "127.0.0.1:1883:1883"            # en clair, uniquement en local (vision, tests)
+      - "127.0.0.1:8883:8883"            # TLS, tests locaux
+      - "${HOTSPOT_IP}:8883:8883"        # TLS, ESP32 (réseau de table)
     volumes:
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - ./mosquitto/passwd:/mosquitto/config/passwd:ro
       - ./mosquitto/acl:/mosquitto/config/acl:ro
+      - ./mosquitto/certs/ca.crt:/mosquitto/certs/ca.crt:ro
+      - ./mosquitto/certs/server.crt:/mosquitto/certs/server.crt:ro
+      - ./mosquitto/certs/server.key:/mosquitto/certs/server.key:ro
       - mosquitto-data:/mosquitto/data
 
   backend:
