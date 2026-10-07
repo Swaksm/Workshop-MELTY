@@ -143,15 +143,15 @@ Une seule commande démarre tout : Docker Desktop si besoin, la stack (base, bro
 powershell -ExecutionPolicy Bypass -File .\lancer.ps1
 ```
 
-Options : `-CameraIndex 1` pour une autre webcam, `-SansVision` ou `-SansFront` pour ne pas lancer une partie, `-Build` pour reconstruire l'image du backend, `-ForcerIp 10.0.3.42` si la détection de l'adresse Wi-Fi se trompe.
+Options : `-CameraIndex 1` pour une autre webcam, `-SansVision` ou `-SansFront` pour ne pas lancer une partie, `-ForcerIp 10.0.3.42` si la détection de l'adresse Wi-Fi se trompe.
 
 Ensuite :
 
 - dashboard : **https://localhost** sur le PC, **https://&lt;IP du PC&gt;** depuis un autre poste du Wi-Fi. Identifiant `admin`, mot de passe `ADMIN_PASSWORD` du fichier `.env` (généré au premier lancement) ;
-- pour éviter l'avertissement du navigateur, importer `mosquitto/certs/ca.crt` dans les « Autorités de certification racines de confiance » du poste (une fois) ;
+- pour éviter l'avertissement du navigateur (`NET::ERR_CERT_AUTHORITY_INVALID`), importer la CA du PC qui fait tourner la stack, une fois par poste : `Import-Certificate -FilePath .\mosquitto\certs\ca.crt -CertStoreLocation Cert:\CurrentUser\Root`, puis rouvrir le navigateur. Sur un autre poste, copier uniquement `ca.crt`, **jamais `ca.key`** ;
 - dashboard de développement (rechargement à chaud) : http://localhost:5173.
 
-À chaque lancement, le script détecte l'adresse du PC sur le Wi-Fi, (re)génère le certificat TLS du broker si elle a changé, et met à jour `MQTT_HOST` et `ca_cert.h` pour le firmware (voir [Réseau de la table](#5-réseau-de-la-table)).
+À chaque lancement, le script reconstruit les images si le code a changé (après un `git pull`, le backend est donc toujours à jour), détecte l'adresse du PC sur le Wi-Fi, (re)génère le certificat TLS (broker et proxy HTTPS) si elle a changé et redémarre les services concernés, et met à jour `MQTT_HOST` et `ca_cert.h` pour le firmware (voir [Réseau de la table](#5-réseau-de-la-table)).
 
 Pour tout arrêter (la base et les modèles sont conservés) :
 
@@ -297,7 +297,9 @@ curl http://localhost:8000/health
 | `lancer.ps1` annonce `Wi-Fi inactif` | pas de carte Wi-Fi connectée avec une passerelle : se connecter au Wi-Fi, ou forcer avec `-ForcerIp` |
 | `docker compose up` : `SERVER_IP` manquante | lancement manuel sans `SERVER_IP` dans le `.env` : lancer `lancer.ps1` ou renseigner la variable |
 | Les autres postes n'atteignent pas le dashboard | pare-feu qui bloque 443 (voir « Ouvrir les ports »), ou mauvaise adresse : utiliser `https://<IP du PC>` |
-| Avertissement « connexion non sécurisée » dans le navigateur | la CA du projet n'est pas importée sur ce poste : importer `mosquitto/certs/ca.crt` |
+| Avertissement `NET::ERR_CERT_AUTHORITY_INVALID` dans le navigateur | la CA n'est pas importée sur ce poste : `Import-Certificate` (voir « Lancement rapide ») avec le `ca.crt` du PC qui fait tourner la stack |
+| Avertissement `NET::ERR_CERT_COMMON_NAME_INVALID` | certificat d'une ancienne IP encore en mémoire : relancer `lancer.ps1`, ou `docker compose restart proxy mosquitto` |
+| « Not Found » en se connectant au dashboard | backend resté à une ancienne version (image construite avant un `git pull`) : relancer `lancer.ps1`, qui reconstruit maintenant toujours les images |
 | Le dashboard revient à l'écran de connexion | le jeton a expiré (8 h) ou le backend a été recréé avec un autre `JWT_SECRET` : se reconnecter |
 | `lancer.ps1` échoue avec « Docker ne répond pas » | Docker Desktop bloqué sur un ancien socket (`%LOCALAPPDATA%\Docker\run`). Redémarre Windows : le verrou disparaît. Ne pas réinitialiser Docker en usine, ça efface les volumes |
 | Le backend ne peut pas écrire les modèles (`Permission denied` sur `/code/models`) | le volume `model-data` appartient à root. Le corriger sans rien supprimer : `docker run --rm -v sentinelx_model-data:/m alpine chown -R 10001:10001 /m` |

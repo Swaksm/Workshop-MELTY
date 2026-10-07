@@ -2,7 +2,7 @@
     [int]$CameraIndex = 0,
     [switch]$SansVision,
     [switch]$SansFront,
-    [switch]$Build,
+    [switch]$Build,             # gardé pour compatibilité : la stack est toujours reconstruite
     [string]$ForcerIp           # force l'IP du serveur si la détection automatique se trompe
 )
 
@@ -155,17 +155,15 @@ Attendre-Docker
 Ecrire-Passwd
 $certsRegeneres = Ecrire-Certificats $ipServeur
 Mettre-A-Jour-Firmware $ipServeur
-Write-Host "1/3 Stack Docker (base, broker MQTT, backend)..."
-$imageExiste = (docker images -q sentinelx-backend 2>$null)
-if ($Build -or -not $imageExiste) {
-    cmd /c "docker compose up -d --build"
-} else {
-    cmd /c "docker compose up -d"
-}
+Write-Host "1/3 Stack Docker (base, broker MQTT, backend, proxy HTTPS)..."
+# Toujours --build : après un git pull, une image restée à l'ancienne version ferait
+# tourner un vieux backend avec le nouveau dashboard. Sans changement, le cache de
+# Docker rend la reconstruction quasi instantanée.
+cmd /c "docker compose up -d --build"
 if ($LASTEXITCODE -ne 0) { throw "docker compose up a échoué." }
 if ($certsRegeneres) {
-    # le conteneur ne relit ses certificats qu'au démarrage
-    cmd /c "docker compose restart mosquitto"
+    # Mosquitto et Caddy ne lisent leur certificat qu'au démarrage
+    cmd /c "docker compose restart mosquitto proxy"
 }
 
 if (-not $SansFront) {
@@ -205,4 +203,6 @@ Write-Host "  Dashboard dev   : http://localhost:5173"
 Write-Host "  Swagger         : http://localhost:8000/docs (PC uniquement)"
 Write-Host "  Supervision     : http://localhost:8080 (cAdvisor, PC uniquement)"
 Write-Host "  Connexion       : $(Lire-Env 'ADMIN_USER') / mot de passe ADMIN_PASSWORD du fichier .env"
+Write-Host "  Certificat      : pour que le navigateur fasse confiance au dashboard, une fois par poste :"
+Write-Host "                    Import-Certificate -FilePath .\mosquitto\certs\ca.crt -CertStoreLocation Cert:\CurrentUser\Root"
 Write-Host "Journaux dans le dossier logs\. Pour tout arrêter : .\arreter.ps1"
