@@ -21,35 +21,39 @@ Projet du workshop EPSI Bac+4 (mission AetherCorp). Le sujet impose notamment : 
 13. [Alertes par mail](#13-alertes-par-mail)
 14. [Tests et CI/CD](#14-tests-et-cicd)
 15. [Simulateur](#15-simulateur)
-16. [Limites connues](#16-limites-connues)
-17. [Feuille de route](#17-feuille-de-route)
+16. [Supervision et rétention (MCO)](#16-supervision-et-rétention-mco)
+17. [Limites connues](#17-limites-connues)
+18. [Feuille de route](#18-feuille-de-route)
 
 ## 1. Architecture
 
 ```
-                         ┌──────────────── PC serveur (192.168.52.1) ────────────────┐
-ESP32 (192.168.52.50)    │                                                          │
- DHT22 · MQ-2 · buzzer   │  Docker Compose                                          │
-        │                │   ┌───────────┐   ┌──────────┐   ┌────────────┐          │
-        │ MQTT 1883      │   │ mosquitto │◄──┤ backend  │──►│ PostgreSQL │          │
-        └───────────────►│   │  :1883    │──►│ FastAPI  │   │   :5432    │          │
-                         │   └───────────┘   │  :8000   │   └────────────┘          │
-Webcam USB (PC)          │        ▲          └────┬─────┘                           │
-   │                     │        │ MQTT            │ SMTP (Gmail)                   │
-   ▼                     │   ┌────┴───────────┐     ▼                                │
- vision/app.py ──────────┼──►│ vision (hors   │   Boîte mail de l'équipe             │
- YOLOv8 nano · :8001     │   │ Docker, sur PC)│                                      │
-                         │   └────────────────┘                                      │
-                         └──────────────────────────────────────────────────────────┘
+                         ┌─────────── PC serveur (Wi-Fi école, ex. 10.0.3.173) ──────────────┐
+ESP32 (Wi-Fi école)      │                                                                   │
+ DHT22 · MQ-2 · PIR      │  Docker Compose (réseau interne 172.18.0.0/16)                    │
+ OLED · buzzer           │   ┌───────────┐   ┌──────────┐   ┌────────────┐   ┌──────────┐    │
+        │                │   │ mosquitto │◄──┤ backend  │──►│ PostgreSQL │   │ cAdvisor │    │
+        │ MQTT/TLS 8883  │   │ 1883 int. │──►│ FastAPI  │   │   :5432    │   │  :8080   │    │
+        └───────────────►│   │ 8883 TLS  │   │  :8000   │   └────────────┘   └──────────┘    │
+                         │   └───────────┘   └────┬─────┘                                    │
+Webcam USB (PC)          │        ▲ MQTT 1883     │ SMTP (Gmail)                             │
+   │                     │        │ (127.0.0.1)   ▼                                          │
+   ▼                     │   ┌────┴───────────┐  Boîte mail de l'équipe                      │
+ vision/app.py ──────────┼──►│ vision (hors   │                                              │
+ YOLOv8 nano · :8001     │   │ Docker, sur PC)│                                              │
+                         │   └────────────────┘                                              │
+                         └───────────────────────────────────────────────────────────────────┘
                                          ▲                    ▲
                     dashboard React (Vite, :5173) ── proxy /api → :8000, /vision → :8001
                                          ▲
-                              navigateur (PC ou autre appareil du hotspot)
+                                  navigateur du PC
 ```
+
 
 - Les **capteurs** passent par MQTT, puis le backend les enregistre et évalue le modèle d'IA.
 - La **vidéo** passe par le module vision, qui tourne sur le PC et non dans Docker : un conteneur Windows n'accède pas à la webcam USB.
 - Les **alertes** déclenchent le buzzer et, au plus une fois toutes les 5 minutes, un mail.
+- Seuls le MQTT chiffré (8883) et l'API (8000) sont joignables depuis le Wi-Fi. Détail du réseau, plan d'adressage et flux autorisés : [docs/reseau.md](docs/reseau.md).
 
 ## 2. Stack
 
@@ -63,7 +67,7 @@ Webcam USB (PC)          │        ▲          └────┬────�
 | Frontend | React 18, Vite 5, Recharts |
 | Mails | SMTP Gmail (mot de passe d'application) |
 | Tests et CI | pytest, GitHub Actions, GHCR |
-| Infra | Docker Compose |
+| Infra | Docker Compose, cAdvisor (supervision) |
 
 ## 3. Structure du dépôt
 
@@ -84,6 +88,8 @@ Webcam USB (PC)          │        ▲          └────┬────�
 │   │   ├── models.py        # tables measurements, alerts, detections
 │   │   ├── schemas.py       # schémas Pydantic d'entrée et de sortie
 │   │   ├── db.py            # moteur et session SQLAlchemy
+│   │   ├── retention.py     # purge horaire des vieilles mesures et des vieux clips
+│   │   ├── supervision.py   # état de la machine : CPU/RAM, base, clips, broker MQTT
 │   │   └── config.py        # variables d'environnement
 │   ├── tests/               # pytest : modèle, API, détection, vision, mails
 │   ├── Dockerfile
@@ -107,9 +113,14 @@ Webcam USB (PC)          │        ▲          └────┬────�
 ├── firmware/
 │   └── sentinel_wifi/sentinel_wifi.ino  # connexion WiFi en IP fixe, OTA
 ├── mosquitto/
-│   └── mosquitto.conf       # configuration du broker (développement)
+│   ├── mosquitto.conf       # configuration du broker (1883 interne, 8883 TLS)
+│   ├── acl                  # droits de chaque compte MQTT
+│   └── gen-certs.sh         # CA (une fois) et certificat du broker pour l'IP du PC
+├── docs/
+│   └── reseau.md            # réseau : schéma, plan d'adressage, flux, isolation
 ├── tools/
-│   └── simulate_sensors.py  # publie de fausses mesures sur le broker
+│   ├── simulate_sensors.py  # publie de fausses mesures sur le broker
+│   └── supervision.ps1      # état de la machine : conteneurs, logs, volumes
 ├── media/                   # clips vidéo des détections (ignoré par Git, créé au premier clip)
 ├── .github/workflows/ci.yml
 ├── docker-compose.yml
@@ -127,7 +138,9 @@ Une seule commande démarre tout : Docker Desktop si besoin, la stack (base, bro
 powershell -ExecutionPolicy Bypass -File .\lancer.ps1
 ```
 
-Options : `-CameraIndex 1` pour une autre webcam, `-SansVision` ou `-SansFront` pour ne pas lancer une partie.
+Options : `-CameraIndex 1` pour une autre webcam, `-SansVision` ou `-SansFront` pour ne pas lancer une partie, `-Build` pour reconstruire l'image du backend, `-ForcerIp 10.0.3.42` si la détection de l'adresse Wi-Fi se trompe.
+
+À chaque lancement, le script détecte l'adresse du PC sur le Wi-Fi, (re)génère le certificat TLS du broker si elle a changé, et met à jour `MQTT_HOST` et `ca_cert.h` pour le firmware (voir [Réseau de la table](#5-réseau-de-la-table)).
 
 Pour tout arrêter (la base et les modèles sont conservés) :
 
@@ -156,11 +169,12 @@ curl http://localhost:8000/health   # {"status":"ok"}
 
 | Service | Port hôte | Rôle |
 |---|---|---|
-| `backend` | 8000 | API REST et Swagger, liée à `127.0.0.1` et à `HOTSPOT_IP` (les autres appareils de la table) |
-| `mosquitto` | 1883 et 8883 | broker MQTT : 1883 en clair sur `127.0.0.1` (backend, vision), 8883 en TLS sur `127.0.0.1` et `HOTSPOT_IP` (ESP32) |
+| `backend` | 8000 | API REST et Swagger, liée à `127.0.0.1` et à `SERVER_IP` (adresse Wi-Fi du PC) |
+| `mosquitto` | 1883 et 8883 | broker MQTT : 1883 en clair sur `127.0.0.1` (backend, vision), 8883 en TLS sur `127.0.0.1` et `SERVER_IP` (ESP32) |
 | `db` | non exposé | PostgreSQL, réseau Docker uniquement |
+| `cadvisor` | 8080 | supervision CPU/RAM par conteneur, sur `127.0.0.1` uniquement |
 
-Les conteneurs tournent sous un utilisateur non-root, sans privilèges supplémentaires et avec système de fichiers en lecture seule (sauf les volumes de données). `lancer.ps1` détecte l'adresse du hotspot et la met dans `HOTSPOT_IP` du `.env`.
+Les conteneurs tournent sous un utilisateur non-root, sans privilèges supplémentaires et avec système de fichiers en lecture seule (sauf les volumes de données). En lancement manuel, `SERVER_IP` doit être renseignée dans le `.env` (adresse Wi-Fi du PC, ou `127.0.0.2` en local) : sans elle, `docker compose` refuse de démarrer plutôt que d'ouvrir les ports sur toutes les interfaces. Les certificats se créent avec `sh mosquitto/gen-certs.sh <IP du PC>`.
 
 ### Lancer le dashboard
 
@@ -194,70 +208,62 @@ docker compose down -v     # supprime aussi la base et les modèles entraînés
 
 ## 5. Réseau de la table
 
-Le PC serveur et l'ESP32 sont sur le **Wi-Fi du labo** (`WIFI_LABO`), pas sur un hotspot dédié. Les capteurs et la vidéo restent en local ; seul le MQTT de l'ESP32 est chiffré, puisqu'il transite sur le Wi-Fi partagé de l'école.
+Le PC serveur et l'ESP32 sont sur le **Wi-Fi de l'école**. Seul le MQTT de l'ESP32 traverse ce Wi-Fi partagé : il est chiffré en TLS et authentifié. Tout le reste (vision, dashboard, base, supervision) reste sur le PC.
+
+Le dossier complet est dans **[docs/reseau.md](docs/reseau.md)** : schéma, plan d'adressage, ports exposés, matrice des flux autorisés, isolation vis-à-vis des autres groupes, et l'amélioration prévue (réseau privé dédié `192.168.10.0/24`).
 
 ### Plan d'adressage
 
 | Équipement | Adresse | Rôle |
 |---|---|---|
-| PC serveur | DHCP de l'école (ex. `10.0.3.76`) | héberge Mosquitto (1883 local + 8883 TLS) et l'API (8000) |
+| PC serveur | DHCP de l'école (ex. `10.0.3.173/24`, passerelle `10.0.3.1`) | Mosquitto (8883 TLS), API (8000) |
 | ESP32 | DHCP de l'école | publie les mesures en TLS |
-| Autres appareils | DHCP de l'école | consultent l'API depuis le navigateur |
+| Conteneurs | réseau Docker interne `172.18.0.0/16` | joignables par leur nom de service uniquement |
 
-L'adresse du PC **change avec le DHCP de l'école**. `lancer.ps1` la détecte à chaque lancement (interface « Wi-Fi ») et la met dans `HOTSPOT_IP` du `.env`. Si elle change, il faut mettre à jour `MQTT_HOST` dans `firmware/sentinel_temp/secrets.h` et reflasher l'ESP32 (OTA possible si le Wi-Fi est encore joignable).
+### Quand l'adresse du PC change
 
-### Se connecter au Wi-Fi du labo
+Le DHCP de l'école peut donner une autre adresse d'un jour à l'autre. `lancer.ps1` s'en occupe :
 
-Rien à créer : le PC et l'ESP32 se connectent au Wi-Fi existant de l'école, avec son SSID et son mot de passe. Ces identifiants vont dans `firmware/sentinel_temp/secrets.h` (`WIFI_SSID`, `WIFI_PASSWORD`), jamais dans le dépôt.
+1. il détecte l'adresse de la carte Wi-Fi physique connectée (celle qui a une passerelle) et l'écrit dans `SERVER_IP` du `.env` ;
+2. si le certificat du broker ne correspond pas à cette adresse, il en signe un nouveau. **La CA ne change pas**, donc l'ESP32 n'a pas besoin d'un nouveau certificat ;
+3. il met à jour `MQTT_HOST` dans `firmware/sentinel_temp/secrets.h` (s'il existe) et régénère `ca_cert.h`, puis affiche « IP changée » : il reste à **reflasher l'ESP32** (câble ou OTA).
 
-### Vérifier l'adresse du PC
+### Se connecter au Wi-Fi de l'école
 
-```powershell
-ipconfig
-```
-
-Cherche la carte **Wi-Fi**, section Adresse IPv4. C'est l'adresse à mettre dans `MQTT_HOST`.
+Le SSID et le mot de passe vont dans `firmware/sentinel_temp/secrets.h` (`WIFI_SSID`, `WIFI_PASSWORD`), jamais dans le dépôt. Copier `secrets.h.example` en `secrets.h` la première fois.
 
 ### Chiffrement TLS du MQTT
 
-Le broker écoute sur deux ports :
-
 | Port | Chiffrement | Qui l'utilise |
 |---|---|---|
-| 1883 | aucun | backend et module vision, uniquement via `mosquitto:1883` (réseau Docker interne) et `127.0.0.1:1883` (boucle locale du PC). Jamais exposé sur le Wi-Fi |
-| 8883 | TLS 1.2 | ESP32, seul client qui traverse le Wi-Fi du labo |
+| 1883 | aucun | backend (`mosquitto:1883`, réseau Docker) et module vision (`127.0.0.1:1883`). Jamais exposé sur le Wi-Fi |
+| 8883 | TLS 1.2 minimum | ESP32, seul client qui traverse le Wi-Fi |
 
-Les certificats sont générés en local, jamais commités :
+Les certificats sont dans `mosquitto/certs/` et ne sont jamais commités : `ca.crt`/`ca.key` (autorité de certification, créée une seule fois, 2 ans) et `server.crt`/`server.key` (certificat du broker, IP du PC dans le CN et le SAN, 1 an). `lancer.ps1` les crée tout seul. À la main : `sh mosquitto/gen-certs.sh <IP du PC>`.
 
-```bash
-sh mosquitto/gen-certs.sh 10.0.3.76   # adresse du PC, voir ci-dessus
-```
-
-Ça produit `mosquitto/certs/{ca.crt,ca.key,server.crt,server.key}`. Pour le firmware, le certificat de la CA doit être copié dans `firmware/sentinel_temp/ca_cert.h` (voir `ca_cert.h.example` pour le format attendu, un `R"EOF(...)EOF"` avec le contenu de `ca.crt`).
-
-`lancer.ps1` recrée aussi `mosquitto/passwd` à chaque lancement à partir des mots de passe du `.env` (`MQTT_PASSWORD`, `VISION_MQTT_PASSWORD`, `ESP32_MQTT_PASSWORD`), donc pas besoin d'y toucher à la main.
+`lancer.ps1` recrée aussi `mosquitto/passwd` à chaque lancement à partir des mots de passe du `.env` (`MQTT_PASSWORD`, `VISION_MQTT_PASSWORD`, `ESP32_MQTT_PASSWORD`).
 
 ### Ouvrir les ports (pare-feu Windows)
 
-Une fois, dans un terminal **administrateur** :
+Le Wi-Fi de l'école est souvent classé en profil **Public** par Windows (vérifier avec `Get-NetConnectionProfile`). Les règles doivent couvrir ce profil, sinon l'ESP32 est bloqué. Une fois, dans un terminal **administrateur** :
 
 ```powershell
-New-NetFirewallRule -DisplayName "SENTINEL-X MQTT TLS" -Direction Inbound -Protocol TCP -LocalPort 8883 -Action Allow -Profile Private
-New-NetFirewallRule -DisplayName "SENTINEL-X API" -Direction Inbound -Protocol TCP -LocalPort 8000 -Action Allow -Profile Private
-New-NetFirewallRule -DisplayName "SENTINEL-X Vision" -Direction Inbound -Protocol TCP -LocalPort 8001 -Action Allow -Profile Private
+New-NetFirewallRule -DisplayName "SENTINEL-X MQTT TLS" -Direction Inbound -Protocol TCP -LocalPort 8883 -Action Allow -Profile Any
+New-NetFirewallRule -DisplayName "SENTINEL-X API" -Direction Inbound -Protocol TCP -LocalPort 8000 -Action Allow -Profile Any
 ```
+
+Le durcissement complet du pare-feu fait partie de la partie cybersécurité.
 
 ### Qui parle à qui
 
 | De | Vers | Protocole et port | Usage |
 |---|---|---|---|
-| ESP32 | PC `MQTT_HOST:8883` | MQTT sur TLS | publie `sentinelx/table1/sensors`, authentifié (`esp32`) |
-| Backend (conteneur) | `mosquitto:1883` | MQTT en clair (réseau Docker) | reçoit capteurs et vision, envoie les commandes |
+| ESP32 | PC `SERVER_IP:8883` | MQTT sur TLS | publie `sentinelx/table1/sensors`, authentifié (`esp32`) |
+| Backend (conteneur) | `mosquitto:1883` | MQTT en clair (réseau Docker) | reçoit capteurs, vision et statistiques `$SYS`, envoie les commandes |
 | Backend (conteneur) | `db:5432` | PostgreSQL (réseau Docker) | enregistre les données |
 | Vision (PC) | `localhost:1883` | MQTT en clair (boucle locale) | publie `sentinelx/table1/vision` |
 | Backend (conteneur) | `smtp.gmail.com:587` | SMTP (STARTTLS) | envoie les mails |
-| Navigateur du PC | `localhost:8000`, `localhost:8001` | HTTP | API, Swagger, flux vidéo |
-| Autre appareil du Wi-Fi | `HOTSPOT_IP:8000` | HTTP | API et Swagger |
+| Navigateur du PC | `localhost:5173`, `:8000`, `:8001`, `:8080` | HTTP | dashboard, API, flux vidéo, cAdvisor |
 
 Le backend parle à Mosquitto et à la base par les **noms de service Docker**, pas par l'IP du PC.
 
@@ -265,7 +271,9 @@ Le backend parle à Mosquitto et à la base par les **noms de service Docker**, 
 
 ```powershell
 ipconfig
-Test-NetConnection 10.0.3.76 -Port 8883
+docker compose ps
+Test-NetConnection <IP du PC> -Port 8883
+openssl s_client -connect <IP du PC>:8883 -CAfile mosquitto/certs/ca.crt -verify_ip <IP du PC> -brief
 curl http://localhost:8000/health
 ```
 
@@ -273,12 +281,14 @@ curl http://localhost:8000/health
 
 | Symptôme | Cause probable |
 |---|---|
-| L'ESP32 se connecte au Wi-Fi, mais `Connexion MQTT... échec` | mauvaise adresse dans `MQTT_HOST` (IP du PC a changé), pare-feu qui bloque 8883, ou identifiants/certificat obsolètes dans `secrets.h`/`ca_cert.h` |
-| Les autres appareils n'atteignent pas l'API | pare-feu qui bloque 8000, ou profil réseau « Public » |
+| L'ESP32 se connecte au Wi-Fi, mais `Connexion MQTT... échec` | l'IP du PC a changé et l'ESP32 n'a pas été reflashé, pare-feu qui bloque 8883 (profil Public), ou mot de passe `esp32` / `ca_cert.h` obsolètes |
+| `lancer.ps1` annonce `Wi-Fi inactif` | pas de carte Wi-Fi connectée avec une passerelle : se connecter au Wi-Fi, ou forcer avec `-ForcerIp` |
+| `docker compose up` : `SERVER_IP` manquante | lancement manuel sans `SERVER_IP` dans le `.env` : lancer `lancer.ps1` ou renseigner la variable |
+| Les autres appareils n'atteignent pas l'API | pare-feu qui bloque 8000 |
 | `lancer.ps1` échoue avec « Docker ne répond pas » | Docker Desktop bloqué sur un ancien socket (`%LOCALAPPDATA%\Docker\run`). Redémarre Windows : le verrou disparaît. Ne pas réinitialiser Docker en usine, ça efface les volumes |
-| Le backend ne peut pas écrire les modèles (`Permission denied` sur `/code/models`) | le volume `model-data` appartient à root. Le corriger sans rien supprimer : `docker run --rm -v workshop_model-data:/m alpine chown -R 10001:10001 /m` |
+| Le backend ne peut pas écrire les modèles (`Permission denied` sur `/code/models`) | le volume `model-data` appartient à root. Le corriger sans rien supprimer : `docker run --rm -v sentinelx_model-data:/m alpine chown -R 10001:10001 /m` |
 | Le module vision ne voit pas une webcam branchée | il ne scanne les caméras qu'au démarrage : relance `lancer.ps1` (ou `arreter.ps1` puis `lancer.ps1`) |
-| Mosquitto refuse de démarrer, erreur sur `cafile` | `mosquitto/certs/` absent : lance `sh mosquitto/gen-certs.sh <IP du PC>` avant `lancer.ps1` |
+| Mosquitto refuse de démarrer, erreur sur `cafile` | `mosquitto/certs/` absent : relance `lancer.ps1`, ou `sh mosquitto/gen-certs.sh <IP du PC>` |
 
 ## 6. Configuration
 
@@ -292,11 +302,14 @@ Fichier `.env` à la racine, créé à partir de `.env.example`. Il n'est pas ve
 | `DATABASE_URL` | `postgresql+psycopg://sentinel:…@db:5432/sentinel` | `backend` | connexion SQLAlchemy |
 | `MQTT_HOST` | `mosquitto` | `backend` | broker vu depuis le backend |
 | `MQTT_PORT` | `1883` | `backend` | port MQTT |
-| `HOTSPOT_IP` | `192.168.52.1` | `docker compose` | adresse du PC sur le hotspot, où l'ESP32 joint le broker et l'API. Mise à jour automatiquement par `lancer.ps1` (`127.0.0.1` si le hotspot est éteint) |
+| `SERVER_IP` | `10.0.3.173` | `docker compose` | adresse du PC sur le Wi-Fi, où l'ESP32 joint le broker et l'API. Mise à jour automatiquement par `lancer.ps1` (`127.0.0.2` si le Wi-Fi est coupé). Obligatoire |
 | `GMAIL_USER` | `adresse@gmail.com` | `backend` | compte qui envoie les mails |
 | `GMAIL_APP_PASSWORD` | `abcdefghijklmnop` | `backend` | mot de passe d'application Google (16 caractères, sans espaces) |
 | `ALERT_TO` | `equipe@exemple.com` | `backend` | destinataire des alertes |
 | `MEDIA_DIR` | `media` | `backend` | dossier des clips vidéo, partagé avec le module vision |
+| `RETENTION_MESURES_JOURS` | `7` | `backend` | mesures plus anciennes purgées (toutes les heures) |
+| `RETENTION_CLIPS_JOURS` | `3` | `backend` | clips vidéo plus anciens supprimés |
+| `MEDIA_MAX_MO` | `500` | `backend` | taille maximale du dossier des clips, les plus anciens partent en premier |
 
 Si `GMAIL_USER`, `GMAIL_APP_PASSWORD` ou `ALERT_TO` manque, les mails sont désactivés sans erreur : les alertes restent dans la base, le buzzer fonctionne toujours.
 
@@ -415,7 +428,7 @@ La capture n'est **pas** stockée en base : elle n'est envoyée que par mail.
 
 ### Volumétrie
 
-Une table à 1 mesure toutes les 5 s produit environ 17 000 lignes par jour dans `measurements`. Il n'y a pas encore de purge.
+Une table à 1 mesure toutes les 5 s produit environ 17 000 lignes par jour dans `measurements`. Les mesures de plus de 7 jours sont purgées toutes les heures (voir [Supervision et rétention](#16-supervision-et-rétention-mco)), soit environ 120 000 lignes au maximum par table. Les alertes et les détections ne sont pas purgées : quelques lignes par jour, et elles servent d'historique de sécurité.
 
 ### Accéder à la base
 
@@ -451,6 +464,7 @@ Base : `http://localhost:8000/api/v1`.
 | GET | `/api/v1/tables/{table_id}/etat` | `{"alerte_active": bool, "modele_entraine": bool}` |
 | POST | `/api/v1/tables/{table_id}/entrainement` | entraîne le modèle capteurs (100 mesures minimum, 5000 au maximum) |
 | POST | `/api/v1/tables/{table_id}/commande` | corps `{"buzzer":"on"}` ou `{"buzzer":"off"}`, renvoie 202 |
+| GET | `/api/v1/supervision` | état de la machine : CPU/RAM/disque de l'hôte Docker, taille de la base, clips, statistiques du broker, dernière purge |
 
 ### Schémas
 
@@ -638,7 +652,7 @@ Les envois se font dans un thread séparé : un mail lent ou en échec ne bloque
 
 | Suite | Nombre | Contenu |
 |---|---|---|
-| `backend/tests` | 32 | modèle capteurs, hausse de température, API, détection, vision (enregistrement et buzzer), mails (cooldown par type, contenu, photo, vidéo, détail/phrase causale) |
+| `backend/tests` | 38 | modèle capteurs, hausse de température, API, détection, vision (enregistrement et buzzer), mails (cooldown par type, contenu, photo, vidéo, détail/phrase causale), rétention (purge des mesures et des clips), supervision |
 | `vision/tests` | 4 | règle de classement : personne, animal, autre objet, confiance faible |
 
 Backend, en local (Python 3.12) :
@@ -653,7 +667,7 @@ Dans l'image Docker (depuis PowerShell) :
 
 ```powershell
 docker compose build backend
-docker run --rm -v "${PWD}\backend:/code" -w /code workshop-backend sh -c "pip install -q -r requirements-dev.txt && pytest"
+docker run --rm -v "${PWD}\backend:/code" -w /code sentinelx-backend sh -c "pip install -q -r requirements-dev.txt && pytest"
 ```
 
 Vision :
@@ -696,7 +710,35 @@ Scénario de test :
 2. Entraîne le modèle : `POST /api/v1/tables/table1/entrainement`.
 3. Attends le pic à 60 s, puis vérifie `GET /api/v1/tables/table1/etat` : `alerte_active` doit valoir `true`.
 
-## 16. Limites connues
+## 16. Supervision et rétention (MCO)
+
+Le maintien en condition opérationnelle (MCO) consiste à vérifier que la machine tient la charge dans la durée : messages MQTT en continu, base qui grossit, logs, clips vidéo.
+
+### Ce qui est surveillé
+
+| Outil | Où | Ce qu'il montre |
+|---|---|---|
+| Panneau « Supervision machine » | dashboard, rafraîchi toutes les 10 s | CPU, RAM et disque de l'hôte Docker, nombre et taille des mesures, taille de la base, clips, clients et messages MQTT par minute, règles de rétention |
+| `GET /api/v1/supervision` | API | les mêmes données en JSON |
+| cAdvisor | http://localhost:8080 (PC uniquement) | CPU, RAM, réseau et disque **par conteneur**, avec historique |
+| `tools/supervision.ps1` | terminal | `docker stats`, taille des logs de chaque conteneur (dont Mosquitto), taille des volumes, résumé de l'API |
+
+Les statistiques du broker viennent des topics `$SYS/broker/...` publiés par Mosquitto (le compte `backend` a le droit de les lire). Sous Docker Desktop, l'« hôte » vu par le backend est la machine virtuelle WSL2 qui fait tourner Docker.
+
+cAdvisor lit les conteneurs via le socket containerd (Docker Desktop range ses conteneurs dans l'espace containerd `moby`), monté en lecture seule. Son interface n'est publiée que sur `127.0.0.1`.
+
+### Ce qui est borné
+
+| Donnée | Limite | Mécanisme |
+|---|---|---|
+| Logs de chaque conteneur, dont Mosquitto | 3 fichiers de 10 Mo, soit 30 Mo maximum | rotation Docker (`logging` dans `docker-compose.yml`) |
+| Mesures en base | 7 jours | purge toutes les heures par le backend (`app/retention.py`) |
+| Clips vidéo (`media/`) | 3 jours et 500 Mo | même purge : les clips trop vieux, puis les plus anciens tant que le dossier dépasse la taille maximale |
+| Mémoire des conteneurs | `mem_limit` par service | Docker |
+
+La purge tourne au démarrage du backend puis toutes les heures. Les durées se règlent dans le `.env` (section 6). PostgreSQL réutilise l'espace libéré (autovacuum) : la base ne rétrécit pas sur le disque, mais elle cesse de grossir.
+
+## 17. Limites connues
 
 - **Buzzer partagé** : l'alerte capteurs et la détection vidéo utilisent le même buzzer. Une fin de buzzer déclenchée par l'une peut couper l'autre.
 - **Fausse alerte capteurs après un pic** : pendant que le pic sort de la fenêtre de 30 mesures, la pente change et une mesure normale peut être signalée.
@@ -704,23 +746,24 @@ Scénario de test :
 - **Modèle de hausse simulé** : le Random Forest de température n'a été entraîné que sur des données simulées. Il doit être réentraîné sur de vraies mesures.
 - **Quota Gmail** : un compte personnel est limité à environ 500 mails par jour.
 - **Vidéo basse qualité** : les clips sont en 320×240, pour rester petits et sous la limite de 20 Mo. Ce n'est pas la qualité du flux affiché sur le dashboard.
-- **Clips non nettoyés** : les fichiers dans `media/` ne sont jamais supprimés automatiquement.
 - **État en mémoire** : alerte active, délai de mail et présence vidéo ne sont pas persistés.
 - **1883 reste sans TLS** : volontaire (réseau Docker interne et boucle locale uniquement, jamais exposé au Wi-Fi), mais ça veut dire que backend et vision ne se parlent pas en chiffré entre eux — sans conséquence tant qu'ils restent sur la même machine.
 - **API et flux vidéo sans authentification**, et le flux circule en clair sur le réseau.
 - **Pas de migrations** : le schéma est créé par `create_all`. Un changement impose de supprimer le volume `pgdata`.
-- **Pas de purge** des mesures.
 - **Un seul modèle capteurs par table**, sans versionnage.
+- **Réseau partagé avec les autres groupes** : le Wi-Fi de l'école n'isole pas la table. TLS, authentification et ACL protègent les données, mais pas contre un déni de service. L'adresse du PC change avec le DHCP, ce qui impose de reflasher l'ESP32 (voir [docs/reseau.md](docs/reseau.md)).
+- **cAdvisor et le socket containerd** : cAdvisor a besoin de ce socket, qui donne la main sur les conteneurs. Il est monté en lecture seule et l'interface n'est publiée qu'en local.
 - **Firmware non testé sur le matériel réel** : `firmware/sentinel_temp/sentinel_temp.ino` lit les capteurs, publie en MQTT/TLS et pilote le buzzer et les deux écrans OLED, mais n'a pas encore tourné sur un vrai ESP32.
 - **Vision hors CI** : le module ne tourne pas dans la CI, et la règle de classement est la seule partie testée automatiquement.
 - **Frontend** : une seule table codée en dur (`table1`) dans `App.jsx`, affichée sous le nom « Sentinel G9 ». Pas encore de conteneur Docker pour le frontend.
 - **Connexion sans sécurité réelle** : l'écran de connexion (`admin` / `admin`) est vérifié dans le navigateur. Il ne protège ni l'API ni le flux vidéo.
 
-## 17. Feuille de route
+## 18. Feuille de route
 
 1. Tester le firmware sur un vrai ESP32 (Wi-Fi labo, TLS, double OLED).
 2. Authentification de l'API et du flux vidéo.
-3. Migrations Alembic, purge des mesures.
+3. Migrations Alembic.
 4. Correction de la fausse alerte après un pic.
 5. Buzzer distinct pour la vidéo et pour les capteurs.
 6. Sélection de la table dans le frontend, conteneur Docker du frontend.
+7. Réseau privé dédié à la table (`192.168.10.0/24`, point d'accès propre, ESP32 en IP fixe) : isolation réelle et fin des reflashs liés au DHCP de l'école.
