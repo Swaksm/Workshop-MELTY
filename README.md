@@ -805,16 +805,20 @@ La purge tourne au démarrage du backend puis toutes les heures. Les durées se 
 - **Un seul modèle capteurs par table**, sans versionnage.
 - **Réseau partagé avec les autres groupes** : le Wi-Fi de l'école n'isole pas la table. TLS, authentification et ACL protègent les données, mais pas contre un déni de service. L'adresse du PC change avec le DHCP, ce qui impose de reflasher l'ESP32 (voir [docs/reseau.md](docs/reseau.md)).
 - **cAdvisor et le socket containerd** : cAdvisor a besoin de ce socket, qui donne la main sur les conteneurs. Il est monté en lecture seule et l'interface n'est publiée qu'en local.
-- **Firmware non testé sur le matériel réel** : `firmware/sentinel_temp/sentinel_temp.ino` lit les capteurs, publie en MQTT/TLS et pilote le buzzer et les deux écrans OLED, mais n'a pas encore tourné sur un vrai ESP32.
 - **Vision hors CI** : le module ne tourne pas dans la CI, et la règle de classement est la seule partie testée automatiquement.
 - **Frontend** : une seule table codée en dur (`table1`) dans `App.jsx`, affichée sous le nom « Sentinel G9 ». Le dashboard compilé est servi par le proxy Caddy (`https://localhost`).
+- **Certificat TLS régénéré à chaque lancement** : `gen-certs.sh` recrée un certificat serveur à chaque fois que l'IP détectée change (et parfois même sans changement selon la validité restante). Chaque régénération impose de reflasher l'ESP32 avec la nouvelle CA (`firmware/sentinel_temp/ca_cert.h`), sans quoi il ne se reconnecte plus en TLS. Pas de mécanisme pour éviter la régénération quand l'IP est stable.
+- **Webcam branchée après le lancement** : le module vision détecte les caméras disponibles une seule fois, au démarrage (`probe_cameras()`). Une webcam branchée après coup n'apparaît pas tant que le process n'est pas relancé (`lancer.ps1` ou relancer `vision/app.py` manuellement).
+- **Pas de reconnexion MQTT visible** : si le broker tombe, le backend et le module vision utilisent la reconnexion automatique de paho-mqtt, mais rien ne le signale sur le dashboard.
+- **Clips vidéo** : le nom du clip n'est en base que depuis l'ajout de la colonne `detections.clip` (octobre 2026). Les détections enregistrées avant n'ont pas de bouton vidéo, même si le fichier existe encore sur disque. L'encodage H.264 (`avc1`) dépend du greffon FFmpeg de la machine : sur certains postes, OpenCV affiche un avertissement `Failed to load OpenH264 library` au démarrage du clip mais retombe sur un autre encodeur H.264 qui fonctionne quand même — à vérifier si l'avertissement devient une vraie erreur sur une autre machine.
 
 ## 18. Feuille de route
 
-1. Tester le firmware sur un vrai ESP32 (Wi-Fi labo, TLS, double OLED).
-2. Comptes nominatifs et rôles (lecture seule / commande) pour l'API.
-3. Migrations Alembic.
-4. Correction de la fausse alerte après un pic.
-5. Buzzer distinct pour la vidéo et pour les capteurs.
-6. Sélection de la table dans le frontend.
+1. Éviter de régénérer le certificat TLS quand l'IP n'a pas changé (évite de reflasher l'ESP32 à chaque lancement).
+2. Re-sonder les webcams à chaud, ou au moins un bouton « réessayer » côté dashboard, sans relancer tout le process vision.
+3. Comptes nominatifs et rôles (lecture seule / commande) pour l'API.
+4. Migrations Alembic.
+5. Correction de la fausse alerte après un pic.
+6. Buzzer distinct pour la vidéo et pour les capteurs.
+7. Sélection de la table dans le frontend.
 7. Réseau privé dédié à la table (`192.168.10.0/24`, point d'accès propre, ESP32 en IP fixe) : isolation réelle et fin des reflashs liés au DHCP de l'école.
