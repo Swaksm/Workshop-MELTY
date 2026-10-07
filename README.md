@@ -620,8 +620,8 @@ Les comptes scolaires (Google Workspace) peuvent avoir cette option désactivée
 
 | Événement | Objet | Contenu |
 |---|---|---|
-| Anomalie capteurs | `[SENTINEL-X] Anomalie capteurs · table1` | température, humidité, gaz, rappel que l'alarme sonore est activée |
-| Hausse de température | `[SENTINEL-X] Hausse de température · table1` | température actuelle, probabilité de hausse du modèle avec barre |
+| Anomalie capteurs | `[SENTINEL-X] Anomalie capteurs · table1` | température, humidité, gaz, phrase causale (caractéristique la plus responsable), tableau des 5 caractéristiques avec écarts, rappel que l'alarme sonore est activée |
+| Hausse de température | `[SENTINEL-X] Hausse de température · table1` | température actuelle, probabilité de hausse avec barre, tableau des caractéristiques du modèle |
 | Personne détectée | `[SENTINEL-X] Personne détectée · table1` | confiance avec barre, capture annotée intégrée et jointe (`capture.jpg`), vidéo de 10 s jointe (`sentinel-clip.mp4`) si elle tient dans la limite |
 
 Les mails sont en HTML, avec une version texte pour les clients qui ne l'affichent pas. La vidéo est écartée, et seule la capture reste jointe, si capture et vidéo dépassent ensemble 20 Mo.
@@ -638,7 +638,7 @@ Les envois se font dans un thread séparé : un mail lent ou en échec ne bloque
 
 | Suite | Nombre | Contenu |
 |---|---|---|
-| `backend/tests` | 26 | modèle capteurs, hausse de température, API, détection, vision (enregistrement et buzzer), mails (cooldown par type, contenu, photo, vidéo) |
+| `backend/tests` | 32 | modèle capteurs, hausse de température, API, détection, vision (enregistrement et buzzer), mails (cooldown par type, contenu, photo, vidéo, détail/phrase causale) |
 | `vision/tests` | 4 | règle de classement : personne, animal, autre objet, confiance faible |
 
 Backend, en local (Python 3.12) :
