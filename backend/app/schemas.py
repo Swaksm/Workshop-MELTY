@@ -66,3 +66,6 @@ class EntrainementOut(BaseModel):
 class EtatOut(BaseModel):
     alerte_active: bool
     modele_entraine: bool
+    buzzer_actif: bool = False
+    buzzer_muet: bool = False
+    led_actif: bool = False

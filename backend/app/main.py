@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from app import auth, detection, ml, models, retention, supervision
+from app import actionneurs, auth, detection, ml, models, retention, supervision
 from app.config import settings
 from app.db import Base, SessionLocal, engine
 from app.mqtt import send_buzzer, send_led, start_mqtt
@@ -123,9 +123,13 @@ def get_clip(detection_id: int, session: Session = Depends(get_session)):
 
 @app.get("/api/v1/tables/{table_id}/etat", response_model=EtatOut, dependencies=PROTEGE)
 def etat(table_id: str) -> EtatOut:
+    commandes = actionneurs.lire(table_id)
     return EtatOut(
         alerte_active=detection.is_active(table_id),
         modele_entraine=ml.get_model(table_id) is not None,
+        buzzer_actif=commandes["buzzer"],
+        buzzer_muet=commandes["buzzer_muet"],
+        led_actif=commandes["led"],
     )
 
 

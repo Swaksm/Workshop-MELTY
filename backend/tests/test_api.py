@@ -24,7 +24,13 @@ def test_health():
 
 def test_etat_initial():
     r = client.get("/api/v1/tables/table1/etat")
-    assert r.json() == {"alerte_active": False, "modele_entraine": False}
+    assert r.json() == {
+        "alerte_active": False,
+        "modele_entraine": False,
+        "buzzer_actif": False,
+        "buzzer_muet": False,
+        "led_actif": False,
+    }
 
 
 def test_entrainement_refuse_sans_assez_de_mesures():

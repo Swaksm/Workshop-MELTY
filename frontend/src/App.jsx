@@ -113,7 +113,13 @@ export default function App({ onLogout }) {
   const [mesures, setMesures] = useState([]);
   const [alertes, setAlertes] = useState([]);
   const [detections, setDetections] = useState([]);
-  const [etat, setEtat] = useState({ alerte_active: false, modele_entraine: false });
+  const [etat, setEtat] = useState({
+    alerte_active: false,
+    modele_entraine: false,
+    buzzer_actif: false,
+    buzzer_muet: false,
+    led_actif: false,
+  });
   const [erreur, setErreur] = useState(null);
   const [message, setMessage] = useState(null);
   const [videoOk, setVideoOk] = useState(true);
@@ -122,9 +128,6 @@ export default function App({ onLogout }) {
   const [presence, setPresence] = useState({ progression: 0, confirmee: false });
   const [supervision, setSupervision] = useState(null);
   const [clipOuvert, setClipOuvert] = useState(null);
-  const [buzzerActif, setBuzzerActif] = useState(false);
-  const [buzzerMuet, setBuzzerMuet] = useState(false);
-  const [ledActif, setLedActif] = useState(false);
 
   useEffect(() => {
     const charger = () =>
@@ -223,21 +226,31 @@ export default function App({ onLogout }) {
 
   async function onBuzzer(state) {
     setMessage(null);
+    if (state === "on" || state === "off") {
+      setEtat((e) => ({ ...e, buzzer_actif: state === "on" }));
+    } else if (state === "mute" || state === "unmute") {
+      setEtat((e) => ({ ...e, buzzer_muet: state === "mute" }));
+    }
     try {
       await commander(TABLE_ID, state);
       setMessage(MESSAGES_BUZZER[state] ?? null);
     } catch (err) {
       setMessage(err.message);
+      rafraichir();
     }
   }
 
   async function onLed(state) {
     setMessage(null);
+    if (state === "on" || state === "off") {
+      setEtat((e) => ({ ...e, led_actif: state === "on" }));
+    }
     try {
       await commanderLed(TABLE_ID, state);
       setMessage(state === "on" ? "LED activée." : state === "test" ? "Test de la LED envoyé." : "LED coupée.");
     } catch (err) {
       setMessage(err.message);
+      rafraichir();
     }
   }
 
@@ -542,9 +555,9 @@ export default function App({ onLogout }) {
             <button
               type="button"
               className="switch"
-              aria-pressed={buzzerActif}
-              disabled={buzzerMuet}
-              onClick={() => { setBuzzerActif((v) => !v); onBuzzer(buzzerActif ? "off" : "on"); }}
+              aria-pressed={etat.buzzer_actif}
+              disabled={etat.buzzer_muet}
+              onClick={() => onBuzzer(etat.buzzer_actif ? "off" : "on")}
             />
           </div>
           <div className="cmd-sub">
@@ -563,12 +576,8 @@ export default function App({ onLogout }) {
             <button
               type="button"
               className="switch"
-              aria-pressed={buzzerMuet}
-              onClick={() => {
-                const prochain = !buzzerMuet;
-                setBuzzerMuet(prochain);
-                onBuzzer(prochain ? "mute" : "unmute");
-              }}
+              aria-pressed={etat.buzzer_muet}
+              onClick={() => onBuzzer(etat.buzzer_muet ? "unmute" : "mute")}
             />
           </div>
           <div className="cmd-row">
@@ -579,8 +588,8 @@ export default function App({ onLogout }) {
             <button
               type="button"
               className="switch"
-              aria-pressed={ledActif}
-              onClick={() => { setLedActif((v) => !v); onLed(ledActif ? "off" : "on"); }}
+              aria-pressed={etat.led_actif}
+              onClick={() => onLed(etat.led_actif ? "off" : "on")}
             />
           </div>
           <div className="cmd-sub">

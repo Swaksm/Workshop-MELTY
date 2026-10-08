@@ -4,6 +4,7 @@ import logging
 import paho.mqtt.client as mqtt
 from pydantic import ValidationError
 
+from app import actionneurs
 from app.config import settings
 from app.db import SessionLocal
 from app.detection import evaluate
@@ -29,10 +30,12 @@ def payload_commande(cle: str, state: str) -> str:
 
 def send_buzzer(table_id: str, state: str) -> None:
     _client.publish(f"sentinelx/{table_id}/cmd", payload_commande("buzzer", state))
+    actionneurs.appliquer_buzzer(table_id, state)
 
 
 def send_led(table_id: str, state: str) -> None:
     _client.publish(f"sentinelx/{table_id}/cmd", payload_commande("led", state))
+    actionneurs.appliquer_led(table_id, state)
 
 
 def on_connect(client, userdata, flags, reason_code, properties):
