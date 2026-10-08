@@ -35,10 +35,81 @@ const SUPERVISION_MS = 10000;
 
 const formatHeure = (iso) => new Date(iso).toLocaleTimeString("fr-FR");
 const formatTick = (horodatage) => new Date(horodatage).toLocaleTimeString("fr-FR");
-const couleurAlerte = (a) => (a.kind === "hausse_temperature" ? "#f5b041" : "#ff6b6b");
 const formatDate = (iso) => new Date(iso).toLocaleString("fr-FR");
 
+const PALETTE_CLAIR = {
+  grid: "#e7e4db", axis: "#a3a099", temp: "#35479e", hum: "#2f7d53",
+  crit: "#b6324a", warn: "#a6670f", tooltipBg: "#ffffff", tooltipBorder: "#d5d1c4", tooltipFg: "#1c1d1f",
+};
+const PALETTE_SOMBRE = {
+  grid: "#2b2d33", axis: "#65635a", temp: "#7e8df2", hum: "#52b17e",
+  crit: "#e3738a", warn: "#e3a23a", tooltipBg: "#1c1e24", tooltipBorder: "#3b3e46", tooltipFg: "#ece9e1",
+};
+
+function useThemeBascule() {
+  const [theme, setTheme] = useState(() => {
+    try {
+      return localStorage.getItem("sx-theme");
+    } catch {
+      return null;
+    }
+  });
+  const [systemeSombre, setSystemeSombre] = useState(
+    () => window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false,
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const onChange = (e) => setSystemeSombre(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+
+  useEffect(() => {
+    if (theme) document.documentElement.setAttribute("data-theme", theme);
+    else document.documentElement.removeAttribute("data-theme");
+  }, [theme]);
+
+  const sombre = theme === "dark" || (!theme && systemeSombre);
+  const basculer = () => {
+    const suivant = sombre ? "light" : "dark";
+    setTheme(suivant);
+    try {
+      localStorage.setItem("sx-theme", suivant);
+    } catch {
+      /* stockage indisponible (navigation privée) : le choix ne survit pas au rechargement */
+    }
+  };
+  return { sombre, basculer };
+}
+
+function couleurAlerte(a, palette) {
+  return a.kind === "hausse_temperature" ? palette.warn : palette.crit;
+}
+
+function MiniSpark({ valeurs, couleur }) {
+  if (!valeurs || valeurs.length < 2) return <svg className="tile-spark" viewBox="0 0 200 30" />;
+  const min = Math.min(...valeurs);
+  const max = Math.max(...valeurs);
+  const amplitude = max - min || 1;
+  const pad = 3;
+  const d = valeurs
+    .map((v, i) => {
+      const x = (i / (valeurs.length - 1)) * (200 - 2 * pad) + pad;
+      const y = 30 - pad - ((v - min) / amplitude) * (30 - 2 * pad);
+      return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+  return (
+    <svg className="tile-spark" viewBox="0 0 200 30" preserveAspectRatio="none">
+      <path d={d} fill="none" stroke={couleur} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export default function App({ onLogout }) {
+  const { sombre, basculer } = useThemeBascule();
+  const palette = sombre ? PALETTE_SOMBRE : PALETTE_CLAIR;
   const [mesures, setMesures] = useState([]);
   const [alertes, setAlertes] = useState([]);
   const [detections, setDetections] = useState([]);
@@ -51,6 +122,8 @@ export default function App({ onLogout }) {
   const [presence, setPresence] = useState({ progression: 0, confirmee: false });
   const [supervision, setSupervision] = useState(null);
   const [clipOuvert, setClipOuvert] = useState(null);
+  const [buzzerActif, setBuzzerActif] = useState(false);
+  const [ledActif, setLedActif] = useState(false);
 
   useEffect(() => {
     const charger = () =>
@@ -187,6 +260,14 @@ export default function App({ onLogout }) {
           <span className={`pill ${etat.modele_entraine ? "ok" : "warn"}`}>
             {etat.modele_entraine ? "Modèle entraîné" : "Modèle non entraîné"}
           </span>
+          <button type="button" className="themebtn" onClick={basculer} aria-label="Changer de thème">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <circle cx="12" cy="12" r="4" />
+              <path d="M12 2v2M12 20v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2 12h2M20 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" />
+            </svg>
+            <span className="lbl-light">Clair</span>
+            <span className="lbl-dark">Sombre</span>
+          </button>
           <button type="button" className="btn ghost" onClick={onLogout}>
             Se déconnecter
           </button>
@@ -216,9 +297,24 @@ export default function App({ onLogout }) {
       )}
 
       <section className="tiles">
-        <Tuile label="Température" valeur={derniere?.temp} unite="°C" />
-        <Tuile label="Humidité" valeur={derniere?.hum} unite="%HR" />
-        <Tuile label="Gaz (valeur brute ADC)" valeur={derniere?.gas} unite="" />
+        <Tuile
+          label="Température"
+          valeur={derniere?.temp}
+          unite="°C"
+          spark={<MiniSpark valeurs={serie.slice(-24).map((p) => p.temp)} couleur={palette.temp} />}
+        />
+        <Tuile
+          label="Humidité"
+          valeur={derniere?.hum}
+          unite="%HR"
+          spark={<MiniSpark valeurs={serie.slice(-24).map((p) => p.hum)} couleur={palette.hum} />}
+        />
+        <Tuile
+          label="Gaz (valeur brute ADC)"
+          valeur={derniere?.gas}
+          unite=""
+          spark={<MiniSpark valeurs={serie.slice(-24).map((p) => p.gaz)} couleur={palette.crit} />}
+        />
       </section>
 
       <section className="charts">
@@ -230,26 +326,26 @@ export default function App({ onLogout }) {
             ) : (
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={serie}>
-                  <CartesianGrid stroke="#1b3147" strokeDasharray="3 3" />
+                  <CartesianGrid stroke={palette.grid} strokeDasharray="3 3" />
                   <XAxis
                     dataKey="t"
                     type="number"
                     domain={["dataMin", "dataMax"]}
                     tickFormatter={formatTick}
-                    stroke="#5c7891"
+                    stroke={palette.axis}
                     fontSize={11}
                   />
-                  <YAxis yAxisId="t" stroke="#5fd9f0" fontSize={11} unit="°C" />
-                  <YAxis yAxisId="h" orientation="right" stroke="#74e0a8" fontSize={11} unit="%" />
-                  <Tooltip contentStyle={tooltipStyle} labelFormatter={formatTick} />
-                  <Line yAxisId="t" type="monotone" dataKey="temp" stroke="#5fd9f0" dot={false} strokeWidth={2} />
-                  <Line yAxisId="h" type="monotone" dataKey="hum" stroke="#74e0a8" dot={false} strokeWidth={2} />
+                  <YAxis yAxisId="t" stroke={palette.temp} fontSize={11} unit="°C" />
+                  <YAxis yAxisId="h" orientation="right" stroke={palette.hum} fontSize={11} unit="%" />
+                  <Tooltip contentStyle={tooltipStyle(palette)} labelFormatter={formatTick} />
+                  <Line yAxisId="t" type="monotone" dataKey="temp" stroke={palette.temp} dot={false} strokeWidth={2} />
+                  <Line yAxisId="h" type="monotone" dataKey="hum" stroke={palette.hum} dot={false} strokeWidth={2} />
                   {marqueurs.map((a) => (
                     <ReferenceLine
                       key={`l${a.id}`}
                       x={a.t}
                       yAxisId="t"
-                      stroke={couleurAlerte(a)}
+                      stroke={couleurAlerte(a, palette)}
                       strokeDasharray="4 4"
                     />
                   ))}
@@ -260,8 +356,8 @@ export default function App({ onLogout }) {
                       y={a.temp}
                       yAxisId="t"
                       r={6}
-                      fill={couleurAlerte(a)}
-                      stroke="#0e1d2e"
+                      fill={couleurAlerte(a, palette)}
+                      stroke={palette.tooltipBg}
                       strokeWidth={2}
                     />
                   ))}
@@ -270,8 +366,8 @@ export default function App({ onLogout }) {
             )}
           </div>
           <div className="chart-legend">
-            <span><i style={{ background: "#ff6b6b" }} /> Anomalie capteurs</span>
-            <span><i style={{ background: "#f5b041" }} /> Hausse de température</span>
+            <span><i style={{ background: palette.crit }} /> Anomalie capteurs</span>
+            <span><i style={{ background: palette.warn }} /> Hausse de température</span>
           </div>
         </div>
 
@@ -285,24 +381,24 @@ export default function App({ onLogout }) {
                 <AreaChart data={serie}>
                   <defs>
                     <linearGradient id="gazFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#ff6f6f" stopOpacity={0.35} />
-                      <stop offset="100%" stopColor="#ff6f6f" stopOpacity={0} />
+                      <stop offset="0%" stopColor={palette.crit} stopOpacity={0.3} />
+                      <stop offset="100%" stopColor={palette.crit} stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid stroke="#1b3147" strokeDasharray="3 3" />
+                  <CartesianGrid stroke={palette.grid} strokeDasharray="3 3" />
                   <XAxis
                     dataKey="t"
                     type="number"
                     domain={["dataMin", "dataMax"]}
                     tickFormatter={formatTick}
-                    stroke="#5c7891"
+                    stroke={palette.axis}
                     fontSize={11}
                   />
-                  <YAxis stroke="#ff6f6f" fontSize={11} />
-                  <Tooltip contentStyle={tooltipStyle} labelFormatter={formatTick} />
-                  <Area type="monotone" dataKey="gaz" stroke="#ff6f6f" fill="url(#gazFill)" strokeWidth={2} />
+                  <YAxis stroke={palette.crit} fontSize={11} />
+                  <Tooltip contentStyle={tooltipStyle(palette)} labelFormatter={formatTick} />
+                  <Area type="monotone" dataKey="gaz" stroke={palette.crit} fill="url(#gazFill)" strokeWidth={2} />
                   {marqueurs.map((a) => (
-                    <ReferenceLine key={`l${a.id}`} x={a.t} stroke={couleurAlerte(a)} strokeDasharray="4 4" />
+                    <ReferenceLine key={`l${a.id}`} x={a.t} stroke={couleurAlerte(a, palette)} strokeDasharray="4 4" />
                   ))}
                   {marqueurs.map((a) => (
                     <ReferenceDot
@@ -310,8 +406,8 @@ export default function App({ onLogout }) {
                       x={a.t}
                       y={a.gas}
                       r={6}
-                      fill={couleurAlerte(a)}
-                      stroke="#0e1d2e"
+                      fill={couleurAlerte(a, palette)}
+                      stroke={palette.tooltipBg}
                       strokeWidth={2}
                     />
                   ))}
@@ -320,50 +416,52 @@ export default function App({ onLogout }) {
             )}
           </div>
           <div className="chart-legend">
-            <span><i style={{ background: "#ff6b6b" }} /> Anomalie capteurs</span>
-            <span><i style={{ background: "#f5b041" }} /> Hausse de température</span>
+            <span><i style={{ background: palette.crit }} /> Anomalie capteurs</span>
+            <span><i style={{ background: palette.warn }} /> Hausse de température</span>
           </div>
         </div>
       </section>
 
       <section className="panel video-panel">
-        <div className="video-head">
-          <h2>Surveillance vidéo</h2>
-          {cameras.disponibles.length > 1 ? (
-            <label className="camera-select">
-              Caméra
-              <select
-                value={cameras.active ?? ""}
-                onChange={(e) => onChoisirCamera(Number(e.target.value))}
-              >
-                {cameras.disponibles.map((index) => (
-                  <option key={index} value={index}>
-                    Caméra n°{index}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : (
-            cameras.disponibles.length === 1 && (
-              <span className="hint">Une seule caméra détectée (n°{cameras.disponibles[0]})</span>
-            )
-          )}
+        <div className="video-main">
+          <div className="video-head">
+            <h2>Surveillance vidéo</h2>
+            {cameras.disponibles.length > 1 ? (
+              <label className="camera-select">
+                Caméra
+                <select
+                  value={cameras.active ?? ""}
+                  onChange={(e) => onChoisirCamera(Number(e.target.value))}
+                >
+                  {cameras.disponibles.map((index) => (
+                    <option key={index} value={index}>
+                      Caméra n°{index}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              cameras.disponibles.length === 1 && (
+                <span className="hint">Une seule caméra détectée (n°{cameras.disponibles[0]})</span>
+              )
+            )}
+          </div>
+          {erreurCamera && <div className="banner error">{erreurCamera}</div>}
+          <div className="video">
+            {videoOk ? (
+              <img
+                src="/vision/stream"
+                alt="Flux de la webcam avec les détections en cours"
+                onError={() => setVideoOk(false)}
+              />
+            ) : (
+              <Vide texte="Flux indisponible : lance le module vision sur le PC (voir le README)." />
+            )}
+          </div>
+          <p className="hint">
+            Rouge : personne (déclenche une alerte et le buzzer). Orange : animal (affiché, sans alerte). Les autres objets ne sont pas affichés.
+          </p>
         </div>
-        {erreurCamera && <div className="banner error">{erreurCamera}</div>}
-        <div className="video">
-          {videoOk ? (
-            <img
-              src="/vision/stream"
-              alt="Flux de la webcam avec les détections en cours"
-              onError={() => setVideoOk(false)}
-            />
-          ) : (
-            <Vide texte="Flux indisponible : lance le module vision sur le PC (voir le README)." />
-          )}
-        </div>
-        <p className="hint">
-          Rouge : personne (déclenche une alerte et le buzzer). Orange : animal (affiché, sans alerte). Les autres objets ne sont pas affichés.
-        </p>
         <aside className="video-side">
           <div className="presence">
             <div className="presence-head">
@@ -426,27 +524,39 @@ export default function App({ onLogout }) {
       <section className="bottom">
         <div className="panel">
           <h2>Commandes</h2>
-          <div className="actions">
-            <button type="button" className="btn cmd" onClick={() => onBuzzer("on")}>
-              Activer le buzzer
-            </button>
-            <button type="button" className="btn" onClick={() => onBuzzer("off")}>
-              Couper le buzzer
-            </button>
-            <button type="button" className="btn cmd" onClick={() => onLed("on")}>
-              Activer la LED
-            </button>
-            <button type="button" className="btn" onClick={() => onLed("off")}>
-              Couper la LED
-            </button>
-            <button type="button" className="btn" onClick={onEntrainer}>
+          <div className="cmd-row">
+            <div className="cmd-label">
+              <b>Buzzer</b>
+              <span>sirène d'alerte locale</span>
+            </div>
+            <button
+              type="button"
+              className="switch"
+              aria-pressed={buzzerActif}
+              onClick={() => { setBuzzerActif((v) => !v); onBuzzer(buzzerActif ? "off" : "on"); }}
+            />
+          </div>
+          <div className="cmd-row">
+            <div className="cmd-label">
+              <b>LED</b>
+              <span>GPIO 25</span>
+            </div>
+            <button
+              type="button"
+              className="switch"
+              aria-pressed={ledActif}
+              onClick={() => { setLedActif((v) => !v); onLed(ledActif ? "off" : "on"); }}
+            />
+          </div>
+          <div className="actions-extra">
+            <button type="button" className="btn block" onClick={onEntrainer}>
               Entraîner le modèle
             </button>
+            <p className="hint">
+              Le modèle apprend la baseline à partir des mesures stockées (100 minimum). Aucun seuil n'est fixé à la main.
+            </p>
+            {message && <p className="message">{message}</p>}
           </div>
-          <p className="hint">
-            Le modèle apprend la baseline à partir des mesures stockées (100 minimum). Aucun seuil n'est fixé à la main.
-          </p>
-          {message && <p className="message">{message}</p>}
         </div>
 
         <div className="panel">
@@ -465,7 +575,7 @@ export default function App({ onLogout }) {
                     <div className="alert-meta">
                       {formatDate(a.created_at)} · {a.temp.toFixed(1)} °C · {a.hum.toFixed(1)} % · gaz {a.gas}
                     </div>
-                    <Explication details={a.details} alerte={a} mesures={mesures} />
+                    <Explication details={a.details} alerte={a} mesures={mesures} palette={palette} />
                   </div>
                 </li>
               ))}
@@ -537,7 +647,7 @@ function Supervision({ data }) {
   );
 }
 
-function Tuile({ label, valeur, unite }) {
+function Tuile({ label, valeur, unite, spark }) {
   return (
     <div className="tile">
       <div className="tile-label">{label}</div>
@@ -545,6 +655,7 @@ function Tuile({ label, valeur, unite }) {
         {valeur === undefined ? "—" : valeur}
         {valeur !== undefined && unite && <span className="unit"> {unite}</span>}
       </div>
+      {spark}
     </div>
   );
 }
@@ -568,7 +679,7 @@ function phraseCausale(details) {
   );
 }
 
-function Explication({ details, alerte, mesures }) {
+function Explication({ details, alerte, mesures, palette }) {
   const [ouvert, setOuvert] = useState(false);
   const momentAlerte = new Date(alerte.created_at).getTime();
   const fenetre = [...mesures]
@@ -629,16 +740,16 @@ function Explication({ details, alerte, mesures }) {
                   <XAxis dataKey="t" type="number" domain={["dataMin", "dataMax"]} hide />
                   <YAxis yAxisId="t" hide domain={["auto", "auto"]} />
                   <YAxis yAxisId="g" orientation="right" hide domain={["auto", "auto"]} />
-                  <Tooltip contentStyle={tooltipStyle} labelFormatter={formatHeure} />
-                  <ReferenceLine x={momentAlerte} yAxisId="t" stroke="#ff6b6b" strokeDasharray="3 3" />
-                  <Line yAxisId="t" type="monotone" dataKey="temp" stroke="#5fd9f0" dot={false} strokeWidth={1.5} name="Température" />
-                  <Line yAxisId="g" type="monotone" dataKey="gaz" stroke="#ff6f6f" dot={false} strokeWidth={1.5} name="Gaz" />
+                  <Tooltip contentStyle={tooltipStyle(palette)} labelFormatter={formatHeure} />
+                  <ReferenceLine x={momentAlerte} yAxisId="t" stroke={palette.crit} strokeDasharray="3 3" />
+                  <Line yAxisId="t" type="monotone" dataKey="temp" stroke={palette.temp} dot={false} strokeWidth={1.5} name="Température" />
+                  <Line yAxisId="g" type="monotone" dataKey="gaz" stroke={palette.crit} dot={false} strokeWidth={1.5} name="Gaz" />
                 </LineChart>
               </ResponsiveContainer>
               <div className="chart-legend">
-                <span><i style={{ background: "#5fd9f0" }} /> Température</span>
-                <span><i style={{ background: "#ff6f6f" }} /> Gaz</span>
-                <span><i style={{ background: "#ff6b6b" }} /> Moment de l'alerte</span>
+                <span><i style={{ background: palette.temp }} /> Température</span>
+                <span><i style={{ background: palette.crit }} /> Gaz</span>
+                <span><i style={{ background: palette.crit }} /> Moment de l'alerte</span>
               </div>
             </div>
           )}
@@ -653,9 +764,9 @@ function Vide({ texte }) {
   return <div className="empty">{texte}</div>;
 }
 
-const tooltipStyle = {
-  background: "#0b1a2a",
-  border: "1px solid #22394f",
-  color: "#e7eef5",
+const tooltipStyle = (palette) => ({
+  background: palette.tooltipBg,
+  border: `1px solid ${palette.tooltipBorder}`,
+  color: palette.tooltipFg,
   fontSize: 12,
-};
+});
