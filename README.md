@@ -808,14 +808,14 @@ La purge tourne au démarrage du backend puis toutes les heures. Les durées se 
 - **Vision hors CI** : le module ne tourne pas dans la CI, et la règle de classement est la seule partie testée automatiquement.
 - **Frontend** : une seule table codée en dur (`table1`) dans `App.jsx`, affichée sous le nom « Sentinel G9 ». Le dashboard compilé est servi par le proxy Caddy (`https://localhost`).
 - **Certificat TLS régénéré à chaque lancement** : `gen-certs.sh` recrée un certificat serveur à chaque fois que l'IP détectée change (et parfois même sans changement selon la validité restante). Chaque régénération impose de reflasher l'ESP32 avec la nouvelle CA (`firmware/sentinel_temp/ca_cert.h`), sans quoi il ne se reconnecte plus en TLS. Pas de mécanisme pour éviter la régénération quand l'IP est stable.
-- **Webcam branchée après le lancement** : le module vision détecte les caméras disponibles une seule fois, au démarrage (`probe_cameras()`). Une webcam branchée après coup n'apparaît pas tant que le process n'est pas relancé (`lancer.ps1` ou relancer `vision/app.py` manuellement).
+- **Webcam débranchée pendant que la table tourne** : une caméra branchée après le démarrage est détectée automatiquement (re-sondage toutes les 5 s). En revanche, si la caméra **active** est débranchée, le module retente de l'ouvrir indéfiniment sans jamais basculer sur une autre caméra disponible : il faut la rebrancher ou changer de caméra à la main dans le dashboard.
 - **Pas de reconnexion MQTT visible** : si le broker tombe, le backend et le module vision utilisent la reconnexion automatique de paho-mqtt, mais rien ne le signale sur le dashboard.
 - **Clips vidéo** : le nom du clip n'est en base que depuis l'ajout de la colonne `detections.clip` (octobre 2026). Les détections enregistrées avant n'ont pas de bouton vidéo, même si le fichier existe encore sur disque. L'encodage H.264 (`avc1`) dépend du greffon FFmpeg de la machine : sur certains postes, OpenCV affiche un avertissement `Failed to load OpenH264 library` au démarrage du clip mais retombe sur un autre encodeur H.264 qui fonctionne quand même — à vérifier si l'avertissement devient une vraie erreur sur une autre machine.
 
 ## 18. Feuille de route
 
 1. Éviter de régénérer le certificat TLS quand l'IP n'a pas changé (évite de reflasher l'ESP32 à chaque lancement).
-2. Re-sonder les webcams à chaud, ou au moins un bouton « réessayer » côté dashboard, sans relancer tout le process vision.
+2. Basculer automatiquement sur une autre caméra si la caméra active est débranchée.
 3. Comptes nominatifs et rôles (lecture seule / commande) pour l'API.
 4. Migrations Alembic.
 5. Correction de la fausse alerte après un pic.

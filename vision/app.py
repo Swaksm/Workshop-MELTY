@@ -84,14 +84,30 @@ def choose_camera(body: CameraIn) -> dict:
     return {"active": body.index}
 
 
-def probe_cameras() -> list[int]:
+def probe_cameras(ignorer: int | None = None) -> list[int]:
     found = []
     for index in range(MAX_CAMERAS):
+        if index == ignorer:
+            found.append(index)
+            continue
         cap = cv2.VideoCapture(index, CAMERA_BACKEND)
         if cap.isOpened() and cap.read()[0]:
             found.append(index)
         cap.release()
     return found
+
+
+def probe_loop() -> None:
+    """Re-sonde les caméras en arrière-plan : une webcam branchée après le démarrage
+    devient disponible sans relancer le process. N'ouvre jamais l'index actif, déjà
+    utilisé par capture_loop (deux VideoCapture sur le même index se gênent)."""
+    while True:
+        time.sleep(5)
+        with state_lock:
+            actif = camera_index
+        trouvees = sorted(probe_cameras(ignorer=actif))
+        with state_lock:
+            available_cameras[:] = trouvees
 
 
 def open_camera(index: int) -> cv2.VideoCapture:
@@ -251,6 +267,7 @@ def main() -> None:
 
     model = YOLO("yolov8n.pt")
     threading.Thread(target=capture_loop, args=(model, client), daemon=True).start()
+    threading.Thread(target=probe_loop, daemon=True).start()
     uvicorn.run(app, host=STREAM_HOST, port=STREAM_PORT)
 
 
