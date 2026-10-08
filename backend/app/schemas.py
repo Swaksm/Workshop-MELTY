@@ -55,8 +55,8 @@ class AlertOut(BaseModel):
 
 
 class CommandeIn(BaseModel):
-    buzzer: Literal["on", "off"] | None = None
-    led: Literal["on", "off"] | None = None
+    buzzer: Literal["on", "off", "mute", "unmute", "test", "silence"] | None = None
+    led: Literal["on", "off", "test"] | None = None
 
 
 class EntrainementOut(BaseModel):

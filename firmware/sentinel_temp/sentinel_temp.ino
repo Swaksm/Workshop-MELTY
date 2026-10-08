@@ -86,13 +86,19 @@ const int GAS_HYSTERESIS = 200;
 
 const unsigned long MQ2_WARMUP    = 60000;
 const unsigned long BEEP_INTERVAL = 250;
+const unsigned long TEST_DUREE_MS    = 700;   // durée du bip de test
+const unsigned long SILENCE_DUREE_MS = 8000;  // coupure ponctuelle pendant une alarme gaz
 
 bool gasAlarm = false;
 bool buzzerManual = false;
+bool buzzerMuet = false;   // désactivation complète : plus aucun son, même en alarme gaz
 bool ledManual = false;
 bool beepState = false;
 
 unsigned long lastBeep = 0;
+unsigned long buzzerTestJusqua = 0;
+unsigned long buzzerSilenceJusqua = 0;
+unsigned long ledTestJusqua = 0;
 
 unsigned long lastSensor = 0;
 unsigned long lastPublish = 0;
@@ -125,18 +131,28 @@ void onCommand(char* topic, byte* payload, unsigned int length) {
     msg += (char)payload[i];
   }
 
-  // Le buzzer est géré par handleBuzzer().
-  // L'alarme gaz reste prioritaire.
+  // Le buzzer est géré par handleBuzzer(). Priorité : test > muet > alarme gaz > manuel.
   if (msg.indexOf("\"buzzer\":\"on\"") >= 0) {
     buzzerManual = true;
   } else if (msg.indexOf("\"buzzer\":\"off\"") >= 0) {
     buzzerManual = false;
+  } else if (msg.indexOf("\"buzzer\":\"mute\"") >= 0) {
+    buzzerMuet = true;
+  } else if (msg.indexOf("\"buzzer\":\"unmute\"") >= 0) {
+    buzzerMuet = false;
+  } else if (msg.indexOf("\"buzzer\":\"test\"") >= 0) {
+    buzzerTestJusqua = millis() + TEST_DUREE_MS;
+  } else if (msg.indexOf("\"buzzer\":\"silence\"") >= 0) {
+    // Coupe le bip en cours (y compris pendant une alarme gaz) sans désactiver durablement.
+    buzzerSilenceJusqua = millis() + SILENCE_DUREE_MS;
   }
 
   if (msg.indexOf("\"led\":\"on\"") >= 0) {
     ledManual = true;
   } else if (msg.indexOf("\"led\":\"off\"") >= 0) {
     ledManual = false;
+  } else if (msg.indexOf("\"led\":\"test\"") >= 0) {
+    ledTestJusqua = millis() + TEST_DUREE_MS;
   }
 
   Serial.println("Commande reçue : " + msg);
@@ -341,28 +357,46 @@ void checkGasAlarm() {
 }
 
 void handleBuzzer() {
-  if (gasAlarm) {
-    // Bip intermittent tant que l'alarme est active
-    if (millis() - lastBeep >= BEEP_INTERVAL) {
-      lastBeep = millis();
-      beepState = !beepState;
+  unsigned long maintenant = millis();
 
-      digitalWrite(
-        BUZZER_PIN,
-        beepState ? HIGH : LOW
-      );
+  // Test : bip forcé, prioritaire sur tout (y compris muet), pour vérifier le câblage.
+  if (maintenant < buzzerTestJusqua) {
+    digitalWrite(BUZZER_PIN, HIGH);
+    return;
+  }
+
+  // Désactivation complète : aucun son, même en alarme gaz.
+  if (buzzerMuet) {
+    beepState = false;
+    digitalWrite(BUZZER_PIN, LOW);
+    return;
+  }
+
+  if (gasAlarm) {
+    // Coupure ponctuelle demandée depuis le dashboard : reste silencieux un moment,
+    // puis reprend si le gaz est toujours au-dessus du seuil.
+    if (maintenant < buzzerSilenceJusqua) {
+      beepState = false;
+      digitalWrite(BUZZER_PIN, LOW);
+      return;
+    }
+    // Bip intermittent tant que l'alarme est active
+    if (maintenant - lastBeep >= BEEP_INTERVAL) {
+      lastBeep = maintenant;
+      beepState = !beepState;
+      digitalWrite(BUZZER_PIN, beepState ? HIGH : LOW);
     }
   } else {
     beepState = false;
-
-    digitalWrite(
-      BUZZER_PIN,
-      buzzerManual ? HIGH : LOW
-    );
+    digitalWrite(BUZZER_PIN, buzzerManual ? HIGH : LOW);
   }
 }
 
 void handleLed() {
+  if (millis() < ledTestJusqua) {
+    digitalWrite(LED_PIN, HIGH);
+    return;
+  }
   digitalWrite(LED_PIN, ledManual ? HIGH : LOW);
 }
 
