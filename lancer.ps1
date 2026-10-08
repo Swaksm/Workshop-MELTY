@@ -196,7 +196,8 @@ if ($certsRegeneres) {
 if (-not $SansFront) {
     Write-Host "2/3 Dashboard (Vite)..."
     if (-not (Test-Path "$racine\frontend\node_modules")) {
-        cmd /c "npm --prefix `"$racine\frontend`" install"
+        # depuis le dossier frontend : "npm --prefix ... install" cherche package.json à la racine
+        cmd /c "cd /d `"$racine\frontend`" && npm install"
         if ($LASTEXITCODE -ne 0) { throw "npm install a échoué." }
     }
     Start-Process -FilePath "cmd.exe" `

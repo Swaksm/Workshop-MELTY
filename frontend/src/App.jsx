@@ -220,8 +220,6 @@ export default function App({ onLogout }) {
     off: "Buzzer coupé.",
     mute: "Buzzer désactivé : plus aucun son, même en alarme gaz.",
     unmute: "Buzzer réactivé.",
-    test: "Test du buzzer envoyé.",
-    silence: "Buzzer coupé pour quelques secondes.",
   };
 
   async function onBuzzer(state) {
@@ -247,7 +245,7 @@ export default function App({ onLogout }) {
     }
     try {
       await commanderLed(TABLE_ID, state);
-      setMessage(state === "on" ? "LED activée." : state === "test" ? "Test de la LED envoyé." : "LED coupée.");
+      setMessage(state === "on" ? "LED activée." : "LED coupée.");
     } catch (err) {
       setMessage(err.message);
       rafraichir();
@@ -560,14 +558,6 @@ export default function App({ onLogout }) {
               onClick={() => onBuzzer(etat.buzzer_actif ? "off" : "on")}
             />
           </div>
-          <div className="cmd-sub">
-            <button type="button" className="btn small" onClick={() => onBuzzer("test")}>
-              Tester
-            </button>
-            <button type="button" className="btn small" onClick={() => onBuzzer("silence")}>
-              Éteindre maintenant
-            </button>
-          </div>
           <div className="cmd-row">
             <div className="cmd-label">
               <b>Désactiver le buzzer</b>
@@ -591,11 +581,6 @@ export default function App({ onLogout }) {
               aria-pressed={etat.led_actif}
               onClick={() => onLed(etat.led_actif ? "off" : "on")}
             />
-          </div>
-          <div className="cmd-sub">
-            <button type="button" className="btn small" onClick={() => onLed("test")}>
-              Tester
-            </button>
           </div>
           <div className="actions-extra">
             <button type="button" className="btn block" onClick={onEntrainer}>
