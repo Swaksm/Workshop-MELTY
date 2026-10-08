@@ -1,0 +1,14 @@
+// client_cert.h est genere par lancer.ps1 a partir de mosquitto/certs/clients/esp32.crt
+// et esp32.key (TLS mutuel avec le broker). Ce modele ne sert que si on le cree a la main.
+// Ne jamais versionner client_cert.h : il contient la cle privee de l'ESP32.
+const char* CLIENT_CERT = R"EOF(
+-----BEGIN CERTIFICATE-----
+Coller ici le contenu de mosquitto/certs/clients/esp32.crt
+-----END CERTIFICATE-----
+)EOF";
+
+const char* CLIENT_KEY = R"EOF(
+-----BEGIN PRIVATE KEY-----
+Coller ici le contenu de mosquitto/certs/clients/esp32.key
+-----END PRIVATE KEY-----
+)EOF";

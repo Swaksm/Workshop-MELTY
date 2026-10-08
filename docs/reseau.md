@@ -64,7 +64,7 @@ flowchart LR
         end
         POSTE["Navigateur<br/>(poste de l'équipe)"]
     end
-    ESP -- "MQTT/TLS 8883<br/>compte esp32" --> MQ
+    ESP -- "MQTT/TLS mutuel 8883<br/>certificat + compte esp32" --> MQ
     VIS -- "MQTT 1883 (127.0.0.1)" --> MQ
     MQ <--> API
     API --> DB
@@ -138,7 +138,7 @@ dans le certificat. Comme l'adresse change, `lancer.ps1` automatise tout à chaq
 
 | Service | Port | Écoute sur | Joignable depuis le Wi-Fi ? | Chiffré | Authentifié |
 |---|---|---|---|---|---|
-| Mosquitto TLS | 8883 | `SERVER_IP`, `127.0.0.1` | **oui** (ESP32) | TLS 1.2+ | compte + ACL |
+| Mosquitto TLS | 8883 | `SERVER_IP`, `127.0.0.1` | **oui** (ESP32) | TLS 1.2+, TLS mutuel | certificat client de l'ESP32, puis compte + ACL |
 | Proxy HTTPS (Caddy) | 443 | `SERVER_IP`, `127.0.0.1` | **oui**, pour les 5 postes autorisés (dashboard, API, vidéo) | TLS 1.2 / 1.3 | certificat client du poste, puis connexion et jeton JWT |
 | API REST directe | 8000 | `127.0.0.1` | non | non (local) | jeton JWT |
 | Mosquitto clair | 1883 | `127.0.0.1` | non | non (local) | compte + ACL |
@@ -151,7 +151,7 @@ dans le certificat. Comme l'adresse change, `lancer.ps1` automatise tout à chaq
 
 | # | Source | Destination | Protocole / port | Chiffrement | Authentification | Usage |
 |---|---|---|---|---|---|---|
-| F1 | ESP32 | PC `SERVER_IP:8883` | MQTT sur TLS | TLS 1.2+, certificat vérifié par la CA | compte `esp32`, ACL (écrit `sensors`, lit `cmd`) | mesures capteurs, commandes buzzer |
+| F1 | ESP32 | PC `SERVER_IP:8883` | MQTT sur TLS mutuel | TLS 1.2+, certificats des deux côtés vérifiés par la CA | certificat `clients/esp32.crt`, puis compte `esp32`, ACL (écrit `sensors`, lit `cmd`) | mesures capteurs, commandes buzzer |
 | F2 | Module vision (PC) | `127.0.0.1:1883` | MQTT | non (ne quitte pas le PC) | compte `vision`, ACL (écrit `vision`) | détections de personnes |
 | F3 | Backend (conteneur) | `mosquitto:1883` | MQTT | non (réseau Docker interne) | compte `backend`, ACL | lit capteurs, vision et statistiques `$SYS`, envoie les commandes |
 | F4 | Backend | `db:5432` | PostgreSQL | non (réseau Docker interne) | mot de passe | enregistrement des données |

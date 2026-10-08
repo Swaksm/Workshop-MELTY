@@ -117,7 +117,7 @@ Webcam USB (PC)          │        ▲ MQTT 1883     │ SMTP (Gmail)          
 ├── firmware/
 │   └── sentinel_wifi/sentinel_wifi.ino  # connexion WiFi en IP fixe, OTA
 ├── mosquitto/
-│   ├── mosquitto.conf       # configuration du broker (1883 interne, 8883 TLS)
+│   ├── mosquitto.conf       # configuration du broker (1883 interne, 8883 TLS mutuel)
 │   ├── acl                  # droits de chaque compte MQTT
 │   └── gen-certs.sh         # CA (une fois) et certificat du broker pour l'IP du PC
 ├── docs/
@@ -265,9 +265,11 @@ Le SSID et le mot de passe vont dans `firmware/sentinel_temp/secrets.h` (`WIFI_S
 | Port | Chiffrement | Qui l'utilise |
 |---|---|---|
 | 1883 | aucun | backend (`mosquitto:1883`, réseau Docker) et module vision (`127.0.0.1:1883`). Jamais exposé sur le Wi-Fi |
-| 8883 | TLS 1.2 minimum | ESP32, seul client qui traverse le Wi-Fi |
+| 8883 | TLS 1.2 minimum, **TLS mutuel** | ESP32, seul client qui traverse le Wi-Fi : il doit présenter son certificat client, puis son mot de passe |
 
-Les certificats sont dans `mosquitto/certs/` et ne sont jamais commités : `ca.crt`/`ca.key` (autorité de certification, créée une seule fois, 2 ans) et `server.crt`/`server.key` (certificat du broker, IP du PC dans le CN et le SAN, 1 an). `lancer.ps1` les crée tout seul. À la main : `sh mosquitto/gen-certs.sh <IP du PC>`.
+Les certificats sont dans `mosquitto/certs/` et ne sont jamais commités : `ca.crt`/`ca.key` (autorité de certification, créée une seule fois, 2 ans), `server.crt`/`server.key` (certificat du broker et du proxy, IP du PC dans le CN et le SAN, 1 an), `clients/esp32.crt`/`esp32.key` (certificat client de l'ESP32, 2 ans) et les certificats des postes (`clients/posteN`). `lancer.ps1` crée ceux qui manquent. À la main : `sh mosquitto/gen-certs.sh <IP du PC>`.
+
+Côté firmware, `lancer.ps1` génère deux fichiers non versionnés : `ca_cert.h` (CA, pour vérifier le broker) et `client_cert.h` (certificat et clé de l'ESP32, pour le TLS mutuel). Ils ne changent pas quand l'IP change ; seul `MQTT_HOST` change. Après la première génération de `client_cert.h`, il faut reflasher l'ESP32, sans quoi le broker refuse sa connexion.
 
 `lancer.ps1` recrée aussi `mosquitto/passwd` à chaque lancement à partir des mots de passe du `.env` (`MQTT_PASSWORD`, `VISION_MQTT_PASSWORD`, `ESP32_MQTT_PASSWORD`).
 
@@ -284,7 +286,7 @@ New-NetFirewallRule -DisplayName "SENTINEL-X HTTPS" -Direction Inbound -Protocol
 
 | De | Vers | Protocole et port | Usage |
 |---|---|---|---|
-| ESP32 | PC `SERVER_IP:8883` | MQTT sur TLS | publie `sentinelx/table1/sensors`, authentifié (`esp32`) |
+| ESP32 | PC `SERVER_IP:8883` | MQTT sur TLS mutuel | publie `sentinelx/table1/sensors`, authentifié par certificat client puis compte `esp32` |
 | Backend (conteneur) | `mosquitto:1883` | MQTT en clair (réseau Docker) | reçoit capteurs, vision et statistiques `$SYS`, envoie les commandes |
 | Backend (conteneur) | `db:5432` | PostgreSQL (réseau Docker) | enregistre les données |
 | Vision (PC) | `localhost:1883` | MQTT en clair (boucle locale) | publie `sentinelx/table1/vision` |
@@ -309,7 +311,7 @@ curl http://localhost:8000/health
 
 | Symptôme | Cause probable |
 |---|---|
-| L'ESP32 se connecte au Wi-Fi, mais `Connexion MQTT... échec` | l'IP du PC a changé et l'ESP32 n'a pas été reflashé, pare-feu qui bloque 8883 (profil Public), ou mot de passe `esp32` / `ca_cert.h` obsolètes |
+| L'ESP32 se connecte au Wi-Fi, mais `Connexion MQTT... échec` | l'IP du PC a changé et l'ESP32 n'a pas été reflashé, pare-feu qui bloque 8883 (profil Public), firmware flashé sans `client_cert.h` (TLS mutuel), ou mot de passe `esp32` / `ca_cert.h` / `client_cert.h` obsolètes |
 | `lancer.ps1` annonce `Wi-Fi inactif` | pas de carte Wi-Fi connectée avec une passerelle : se connecter au Wi-Fi, ou forcer avec `-ForcerIp` |
 | `docker compose up` : `SERVER_IP` manquante | lancement manuel sans `SERVER_IP` dans le `.env` : lancer `lancer.ps1` ou renseigner la variable |
 | Les autres postes n'atteignent pas le dashboard | pare-feu qui bloque 443 (voir « Ouvrir les ports »), ou mauvaise adresse : utiliser `https://<IP du PC>` |
@@ -411,13 +413,13 @@ Une **table** est un identifiant libre (`table1`). Il doit être identique côt�
 
 - `temp` : °C, un chiffre après la virgule. `hum` : humidité relative en %. `gas` : valeur ADC brute, entier de 0 à 4095. `pir` : 0 ou 1, facultatif (mouvement du capteur PIR, stocké dans `measurements.pir`). `alarm` : alarme gaz locale de l'ESP32 (seuil physique sur la carte, pas lié au modèle d'IA) — champ ignoré par le backend pour l'instant.
 - Le champ `image` est facultatif. Un label autre que `person` est refusé.
-- Le broker refuse les connexions anonymes (`mosquitto/acl`). Backend et vision se connectent en clair sur `1883` (réseau Docker / boucle locale uniquement). L'ESP32 se connecte en **TLS sur `8883`**, authentifié (voir [Réseau de la table](#5-réseau-de-la-table)).
+- Le broker refuse les connexions anonymes (`mosquitto/acl`). Backend et vision se connectent en clair sur `1883` (réseau Docker / boucle locale uniquement). L'ESP32 se connecte en **TLS mutuel sur `8883`** : certificat client, puis compte `esp32` (voir [Réseau de la table](#5-réseau-de-la-table)).
 
 Test manuel depuis le PC, avec les identifiants `esp32` du `.env` :
 
 ```bash
-mosquitto_sub -h <IP du PC> -p 8883 --cafile mosquitto/certs/ca.crt -u esp32 -P <ESP32_MQTT_PASSWORD> -t "sentinelx/#" -v
-mosquitto_pub -h <IP du PC> -p 8883 --cafile mosquitto/certs/ca.crt -u esp32 -P <ESP32_MQTT_PASSWORD> -t "sentinelx/table1/cmd" -m '{"buzzer":"on"}'
+mosquitto_sub -h <IP du PC> -p 8883 --cafile mosquitto/certs/ca.crt --cert mosquitto/certs/clients/esp32.crt --key mosquitto/certs/clients/esp32.key -u esp32 -P <ESP32_MQTT_PASSWORD> -t "sentinelx/#" -v
+mosquitto_pub -h <IP du PC> -p 8883 --cafile mosquitto/certs/ca.crt --cert mosquitto/certs/clients/esp32.crt --key mosquitto/certs/clients/esp32.key -u esp32 -P <ESP32_MQTT_PASSWORD> -t "sentinelx/table1/cmd" -m '{"buzzer":"on"}'
 ```
 
 ## 9. Base de données

@@ -8,6 +8,7 @@
 #include <Adafruit_SSD1306.h>
 #include "secrets.h"
 #include "ca_cert.h"
+#include "client_cert.h"  // certificat et clé de l'ESP32 (TLS mutuel), générés par lancer.ps1
 
 // ================= Broches =================
 #define DHTPIN     4
@@ -888,7 +889,9 @@ void setup() {
     TABLE_ID +
     "/cmd";
 
-  wifiClient.setCACert(CA_CERT);
+  wifiClient.setCACert(CA_CERT);            // vérifie le broker
+  wifiClient.setCertificate(CLIENT_CERT);    // TLS mutuel : l'ESP32 prouve son identité au broker
+  wifiClient.setPrivateKey(CLIENT_KEY);
 
   mqtt.setServer(
     MQTT_HOST,

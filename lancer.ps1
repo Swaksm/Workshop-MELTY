@@ -127,7 +127,7 @@ function Ecrire-Certificats($ip) {
         $aFaire = -not ($cert.Subject -eq "CN=$ip" -and $cert.NotAfter -gt (Get-Date).AddDays(7))
     }
     # posteN.crt suffit : .p12, .key et mot de passe peuvent être supprimés après distribution
-    $attendus = @("clients\autorises.pem") + (1..$nbClients | ForEach-Object { "clients\poste$_.crt" })
+    $attendus = @("clients\autorises.pem", "clients\esp32.crt", "clients\esp32.key") + (1..$nbClients | ForEach-Object { "clients\poste$_.crt" })
     if ($attendus | Where-Object { -not (Test-Path (Join-Path $certs $_)) }) { $aFaire = $true }
     if (-not $aFaire) { return $false }
 
@@ -150,6 +150,21 @@ function Mettre-A-Jour-Firmware($ip) {
     if ($ancien -ne $contenu) {
         [System.IO.File]::WriteAllText($fichierCa, $contenu)
         Write-Host "firmware\sentinel_temp\ca_cert.h mis à jour : reflasher l'ESP32."
+    }
+
+    # certificat et clé de l'ESP32 pour le TLS mutuel avec le broker
+    $clients = Join-Path $racine "mosquitto\certs\clients"
+    $certEsp = (Get-Content (Join-Path $clients "esp32.crt") -Raw).Trim()
+    $cleEsp = (Get-Content (Join-Path $clients "esp32.key") -Raw).Trim()
+    $contenu = "// Genere par lancer.ps1 a partir de mosquitto/certs/clients/esp32.crt et esp32.key.`n" +
+        "// Contient la cle privee de l'ESP32 : ne pas versionner, ne pas diffuser.`n" +
+        "const char* CLIENT_CERT = R`"EOF(`n$certEsp`n)EOF`";`n`n" +
+        "const char* CLIENT_KEY = R`"EOF(`n$cleEsp`n)EOF`";`n"
+    $fichierClient = Join-Path $dossier "client_cert.h"
+    $ancien = if (Test-Path $fichierClient) { [System.IO.File]::ReadAllText($fichierClient) } else { "" }
+    if ($ancien -ne $contenu) {
+        [System.IO.File]::WriteAllText($fichierClient, $contenu)
+        Write-Host "firmware\sentinel_temp\client_cert.h mis à jour : reflasher l'ESP32."
     }
 
     $secrets = Join-Path $dossier "secrets.h"

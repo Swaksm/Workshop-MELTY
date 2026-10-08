@@ -161,6 +161,35 @@ jobs:
           if curl -s -o /dev/null --cacert $CA https://127.0.0.1/; then echo "accepté sans certificat client"; exit 1; fi
           if curl -s -o /dev/null --cacert $CA --cert mosquitto/certs/server.crt --key mosquitto/certs/server.key https://127.0.0.1/; then echo "server.crt accepté comme client"; exit 1; fi
           echo "HTTPS OK : certificat client exigé, routes protégées refusées sans jeton"
+      - name: Vérifier le TLS mutuel du broker (8883)
+        run: |
+          python - <<'EOF'
+          import ssl
+          import time
+
+          import paho.mqtt.client as mqtt
+          ENV = dict(l.split("=", 1) for l in open(".env").read().splitlines() if "=" in l)
+          C = "mosquitto/certs"
+
+          def connexion(cert=None, key=None):
+              res = {}
+              c = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+              c.username_pw_set("esp32", ENV["ESP32_MQTT_PASSWORD"])
+              c.tls_set(ca_certs=f"{C}/ca.crt", certfile=cert, keyfile=key)
+              c.on_connect = lambda cl, u, f, rc, p: res.setdefault("rc", rc)
+              try:
+                  c.connect("127.0.0.1", 8883)
+                  c.loop_start()
+                  time.sleep(2)
+                  c.loop_stop()
+              except (ssl.SSLError, OSError):
+                  return False
+              return res.get("rc") == 0
+
+          assert connexion(f"{C}/clients/esp32.crt", f"{C}/clients/esp32.key"), "ESP32 refusé avec son certificat"
+          assert not connexion(), "connexion acceptée sans certificat client"
+          print("TLS mutuel OK : certificat ESP32 accepté, connexion sans certificat refusée")
+          EOF
       - name: Logs en cas d'échec
         if: failure()
         run: docker compose logs --no-color

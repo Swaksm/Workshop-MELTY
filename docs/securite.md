@@ -10,7 +10,7 @@ Depuis le Wi-Fi de l'école (le réseau partagé avec les autres groupes), il n'
 
 | Port | Service | Chiffrement | Authentification |
 |---|---|---|---|
-| 8883 | MQTT (ESP32 → broker) | TLS 1.2 minimum, certificat signé par la CA du projet | compte par appareil + ACL |
+| 8883 | MQTT (ESP32 → broker) | TLS 1.2 minimum, TLS mutuel, certificats signés par la CA du projet | **certificat client de l'ESP32**, puis compte par appareil + ACL |
 | 443 | HTTPS (dashboard, API, flux vidéo) via le reverse proxy Caddy | TLS 1.2 / 1.3, même CA | **certificat client du poste** (5 postes autorisés), puis connexion au dashboard et jeton JWT |
 
 Tout le reste n'écoute que sur la boucle locale du PC (`127.0.0.1`) ou sur le réseau Docker
@@ -18,7 +18,7 @@ interne : MQTT en clair (1883), API directe (8000), module vision (8001), dashbo
 développement (5173), cAdvisor (8080), PostgreSQL (5432, aucun port publié).
 
 ```
-  Wi-Fi école ──► :8883  Mosquitto (TLS, comptes, ACL) ──► backend ──► PostgreSQL
+  Wi-Fi école ──► :8883  Mosquitto (TLS mutuel, comptes, ACL) ──► backend ──► PostgreSQL
               └─► :443   Caddy (TLS + certificat du poste exigé)
                             │
                             ├─ /api/*     ──► backend (vérifie le jeton)
@@ -32,7 +32,7 @@ développement (5173), cAdvisor (8080), PostgreSQL (5432, aucun port publié).
 |---|---|---|---|---|
 | M1 | **Écoute du réseau** (Wireshark sur le Wi-Fi partagé) : lecture des mesures, des mots de passe MQTT | MQTT de l'ESP32 en TLS (8883). Dashboard, API et vidéo en HTTPS (443). Le MQTT en clair (1883) n'est pas publié sur le Wi-Fi | capture Wireshark sur 8883 (seulement « Application Data » TLS) comparée à une capture locale du 1883 (topics et JSON lisibles) ; `nmap` : 1883 fermé depuis le Wi-Fi | le trafic local (vision → 1883, backend → base) reste en clair, mais il ne quitte pas la machine |
 | M2 | **Homme du milieu** (faux broker, usurpation ARP) | l'ESP32 vérifie le certificat du broker avec la CA du projet (`setCACert`) ; le certificat contient l'IP du serveur (CN et SAN). Le navigateur vérifie le certificat HTTPS | `openssl s_client -verify_ip` : OK avec la bonne IP, « IP address mismatch » avec une autre ; un faux serveur sans la clé de la CA est refusé | si la clé de la CA (`ca.key`) était volée, un faux serveur serait possible : elle ne quitte pas le PC et n'est jamais commitée |
-| M3 | **Broker ouvert** : un inconnu publie de fausses mesures ou déclenche le buzzer | `allow_anonymous false`, un compte par composant (`backend`, `vision`, `esp32`), mots de passe aléatoires générés par `lancer.ps1` | `mosquitto_sub` anonyme → « not authorised » ; mauvais mot de passe → refus | un mot de passe volé (par exemple en lisant la flash de l'ESP32 si on vole le boîtier) permet de publier des mesures, dans la limite des ACL. Sous Docker Desktop, `passwd` et `acl` montés depuis Windows ne peuvent pas appartenir à l'utilisateur `mosquitto` en mode 600 (avertissement au démarrage) : les mots de passe y sont hachés |
+| M3 | **Broker ouvert** : un inconnu publie de fausses mesures ou déclenche le buzzer | TLS mutuel sur 8883 : le client doit présenter un certificat signé par la CA (`clients/esp32.crt`), sinon la connexion est coupée avant toute authentification ; puis `allow_anonymous false`, un compte par composant (`backend`, `vision`, `esp32`), mots de passe aléatoires générés par `lancer.ps1` | connexion sans certificat client, ou avec `server.crt` → coupée par le broker ; `mosquitto_sub` anonyme → « not authorised » ; mauvais mot de passe → refus ; vérification automatique dans la CI | Mosquitto accepte tout certificat client signé par la CA : un certificat de poste associé au mot de passe `esp32` passerait (il faut deux secrets de l'équipe). Le vol du boîtier donne accès au certificat, à la clé et au mot de passe stockés dans la flash de l'ESP32 : ils permettent de publier des mesures, dans la limite des ACL (révocation : supprimer `clients/esp32.*`, relancer, reflasher). Sous Docker Desktop, `passwd` et `acl` montés depuis Windows ne peuvent pas appartenir à l'utilisateur `mosquitto` en mode 600 (avertissement au démarrage) : les mots de passe y sont hachés |
 | M4 | **Abus d'un compte MQTT** : le compte de l'ESP32 lit la vidéo ou envoie des commandes | ACL : chaque compte ne lit ou n'écrit que ses topics (`esp32` écrit `sensors`, lit `cmd` ; `vision` écrit `vision`) | publication refusée hors ACL (le message n'arrive pas au backend) | — |
 | M5 | **Accès au dashboard par un autre groupe** (n'importe qui sur le Wi-Fi de l'école peut ouvrir `https://<IP>`) | TLS mutuel : le proxy exige un certificat client, et n'accepte que ceux des postes autorisés (`clients/autorises.pem`, 5 postes). Sans certificat valide, la connexion TLS est coupée avant même la page de connexion | navigateur sans certificat : `ERR_BAD_SSL_CLIENT_AUTH_CERT` ; certificat signé par la CA mais non listé, ou `server.crt` présenté comme client : refusé ; vérification automatique dans la CI | un poste dont le fichier `.p12` et son mot de passe sont volés est accepté jusqu'à sa révocation (supprimer `posteN.crt` puis relancer) |
 | M6 | **API ouverte** : n'importe qui déclenche le buzzer, la LED, l'entraînement, lit les données | toutes les routes `/api/v1` exigent un jeton JWT signé (HS256, 8 h). Le jeton est dans un cookie HttpOnly, Secure, SameSite=Strict. L'API directe (8000) n'est publiée que sur `127.0.0.1` | `curl` sans jeton → 401 sur `/mesures`, `/commande`, `/entrainement` ; 14 tests automatiques (`test_auth.py`) et vérification dans la CI | un seul compte (`admin`) partagé par l'équipe, sans rôles |
@@ -52,7 +52,7 @@ développement (5173), cAdvisor (8080), PostgreSQL (5432, aucun port publié).
 
 | Lien | Protocole | Version minimum | Certificat |
 |---|---|---|---|
-| ESP32 → broker | MQTT sur TLS (8883) | TLS 1.2 | `server.crt`, IP du PC dans le CN et le SAN, signé par la CA du projet (RSA 2048, SHA-256) |
+| ESP32 → broker | MQTT sur TLS (8883), TLS mutuel | TLS 1.2 | le broker présente `server.crt` (IP du PC dans le CN et le SAN, RSA 2048, SHA-256) ; l'ESP32 présente `clients/esp32.crt` ; les deux signés par la CA du projet |
 | Navigateur → dashboard, API, vidéo | HTTPS (443), TLS mutuel | TLS 1.2 (1.3 négocié) | le serveur présente `server.crt` ; le navigateur présente le certificat de son poste (`posteN`) |
 | Backend → Gmail | SMTP STARTTLS (587) | celle de Gmail | autorité publique |
 | Mots de passe MQTT au repos | `mosquitto_passwd` | — | haché (PBKDF2-SHA512) |
@@ -93,9 +93,16 @@ avec un certificat client.
 `posteN.crt` sur le serveur et relancer `lancer.ps1`. Un nouveau certificat `posteN` est
 créé, l'ancien n'est plus dans la liste et il est refusé immédiatement.
 
-**Ce qui n'est pas concerné** : l'ESP32 (MQTT 8883) s'authentifie par mot de passe, pas par
-certificat client ; l'accès local du PC serveur (Swagger sur `127.0.0.1:8000`, dashboard
-de développement sur `localhost:5173`) ne passe pas par le proxy.
+**Ce qui n'est pas concerné** : l'accès local du PC serveur (Swagger sur `127.0.0.1:8000`,
+dashboard de développement sur `localhost:5173`) ne passe pas par le proxy.
+
+**L'ESP32 aussi (MQTT 8883).** Le broker exige également un certificat client sur le port
+8883 (`require_certificate true`). L'ESP32 a le sien, `clients/esp32.crt` (valable 2 ans,
+indépendant de l'IP) ; `lancer.ps1` en tire `firmware/sentinel_temp/client_cert.h`
+(certificat et clé, non versionné) que le firmware charge avec `setCertificate` et
+`setPrivateKey`. Le mot de passe `esp32` et les ACL restent exigés après la poignée de main.
+Contrairement à Caddy, Mosquitto ne sait pas restreindre à une liste précise : il accepte
+tout certificat client signé par la CA.
 
 ## 5. Périmètre
 
@@ -117,7 +124,9 @@ services, comptes) n'entre pas dans le périmètre du projet.
    ssl-enum-ciphers <IP>` : TLS 1.2/1.3, suites fortes.
 2. **Chiffrement MQTT : Wireshark**
    - capture sur la carte Wi-Fi, filtre `tcp.port == 8883` pendant que l'ESP32 publie :
-     seulement des trames « TLSv1.x Application Data », contenu illisible ;
+     seulement des trames « TLSv1.x Application Data », contenu illisible ; en TLS 1.2, la
+     poignée de main montre la demande de certificat du broker (« Certificate Request ») et
+     le certificat présenté par l'ESP32 ;
    - capture sur la boucle locale (adaptateur « Npcap Loopback »), filtre `mqtt`, en
      publiant une mesure de test sur 1883 avec `tools/simulate_sensors.py` : topic
      `sentinelx/table1/sensors` et JSON en clair. La comparaison des deux captures est la

@@ -13,6 +13,9 @@
 #   certificats listés dans clients/autorises.pem. Après distribution, posteN.p12,
 #   posteN.key et le mot de passe peuvent être supprimés du serveur ; supprimer
 #   posteN.crt révoque le poste (un nouveau certificat est créé au lancement suivant).
+# - Certificat de l'ESP32 (clients/esp32) : présenté au broker MQTT (TLS mutuel sur
+#   8883). Créé s'il manque, indépendant de l'IP. Sa clé reste sur le serveur :
+#   lancer.ps1 en tire firmware/sentinel_temp/client_cert.h.
 set -eu
 IP="${1:?Usage : gen-certs.sh IP_DU_SERVEUR}"
 NB_CLIENTS="${NB_CLIENTS:-5}"
@@ -62,7 +65,18 @@ while [ "$i" -le "$NB_CLIENTS" ]; do
   i=$((i + 1))
 done
 
-# Liste des postes acceptés par le proxy HTTPS (seulement poste1 à posteN)
+# 4. Certificat client de l'ESP32 (TLS mutuel avec le broker MQTT)
+if [ ! -f clients/esp32.crt ] || [ ! -f clients/esp32.key ]; then
+  openssl req -new -nodes -newkey rsa:2048 -sha256 \
+    -keyout clients/esp32.key -out clients/esp32.csr -subj "/CN=esp32"
+  printf "extendedKeyUsage=clientAuth\nkeyUsage=digitalSignature\n" > clients/esp32.ext
+  openssl x509 -req -sha256 -days 730 -in clients/esp32.csr -CA ca.crt -CAkey ca.key \
+    -CAcreateserial -out clients/esp32.crt -extfile clients/esp32.ext
+  rm -f clients/esp32.csr clients/esp32.ext
+  echo "Certificat client de l'ESP32 créé : reflasher l'ESP32 (client_cert.h)."
+fi
+
+# Liste des postes acceptés par le proxy HTTPS (seulement poste1 à posteN, pas l'ESP32)
 : > clients/autorises.pem
 i=1
 while [ "$i" -le "$NB_CLIENTS" ]; do
