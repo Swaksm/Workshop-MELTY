@@ -21,12 +21,18 @@ SYS_TOPIC = "$SYS/broker/#"
 _client: mqtt.Client | None = None
 
 
+def payload_commande(cle: str, state: str) -> str:
+    # JSON compact {"buzzer":"on"} : le firmware cherche la chaîne exacte, sans espace
+    # après les deux-points (json.dumps en met une par défaut).
+    return json.dumps({cle: state}, separators=(",", ":"))
+
+
 def send_buzzer(table_id: str, state: str) -> None:
-    _client.publish(f"sentinelx/{table_id}/cmd", json.dumps({"buzzer": state}))
+    _client.publish(f"sentinelx/{table_id}/cmd", payload_commande("buzzer", state))
 
 
 def send_led(table_id: str, state: str) -> None:
-    _client.publish(f"sentinelx/{table_id}/cmd", json.dumps({"led": state}))
+    _client.publish(f"sentinelx/{table_id}/cmd", payload_commande("led", state))
 
 
 def on_connect(client, userdata, flags, reason_code, properties):
