@@ -88,6 +88,7 @@ const unsigned long MQ2_WARMUP    = 60000;
 const unsigned long BEEP_INTERVAL = 250;
 const unsigned long TEST_DUREE_MS    = 700;   // durée du bip de test
 const unsigned long SILENCE_DUREE_MS = 8000;  // coupure ponctuelle pendant une alarme gaz
+const unsigned long LED_MOUVEMENT_DUREE_MS = 30000;  // éclairage d'appoint pour la caméra après un mouvement
 
 bool gasAlarm = false;
 bool buzzerManual = false;
@@ -99,6 +100,10 @@ unsigned long lastBeep = 0;
 unsigned long buzzerTestJusqua = 0;
 unsigned long buzzerSilenceJusqua = 0;
 unsigned long ledTestJusqua = 0;
+unsigned long ledMouvementJusqua = 0;
+// Le dashboard a repris la main sur la LED : le mouvement en cours ne la rallume plus
+// (réarmé dès que le PIR repasse au repos).
+bool ledMouvementAnnule = false;
 
 unsigned long lastSensor = 0;
 unsigned long lastPublish = 0;
@@ -147,10 +152,15 @@ void onCommand(char* topic, byte* payload, unsigned int length) {
     buzzerSilenceJusqua = millis() + SILENCE_DUREE_MS;
   }
 
+  // Une commande du dashboard prend le dessus sur l'allumage automatique par le PIR.
   if (msg.indexOf("\"led\":\"on\"") >= 0) {
     ledManual = true;
+    ledMouvementJusqua = 0;
+    ledMouvementAnnule = true;
   } else if (msg.indexOf("\"led\":\"off\"") >= 0) {
     ledManual = false;
+    ledMouvementJusqua = 0;
+    ledMouvementAnnule = true;
   } else if (msg.indexOf("\"led\":\"test\"") >= 0) {
     ledTestJusqua = millis() + TEST_DUREE_MS;
   }
@@ -284,6 +294,13 @@ void readSensors() {
 
   gas = analogRead(MQ2_PIN);
   pir = digitalRead(PIR_PIN);
+
+  // Mouvement : allume la LED pour aider la caméra, prolongé tant que le PIR détecte.
+  if (!pir) {
+    ledMouvementAnnule = false;
+  } else if (!ledMouvementAnnule) {
+    ledMouvementJusqua = millis() + LED_MOUVEMENT_DUREE_MS;
+  }
 }
 
 void publishSensors() {
@@ -393,7 +410,8 @@ void handleBuzzer() {
 }
 
 void handleLed() {
-  if (millis() < ledTestJusqua) {
+  unsigned long maintenant = millis();
+  if (maintenant < ledTestJusqua || maintenant < ledMouvementJusqua) {
     digitalWrite(LED_PIN, HIGH);
     return;
   }
